@@ -7,25 +7,25 @@ This repository is the canonical home for the active X-Plane 12 host/runtime cod
 - `xplane12/host/xplane12_web_autoflight.py` — waits for the XP12 Web API, optionally air-starts once, then runs the endless-flight relay.
 - `xplane12/host/xplane_remote_relay.py` — telemetry relay for `mock`, `xpc`, `rref`, and `auto` modes. Current production host usage is pinned to `rref`.
 - `xplane12/host/xplane12_data_api.py` — local snapshot/stream API.
-- `host/bin/` — remote wrapper scripts deployed to `/home/tang/*.sh`.
-- `host/systemd/` — systemd units deployed to `/etc/systemd/system/`.
-- `host/tools/` — local install/restart/diag/log helpers.
-- `host/env/xplane12.env.example` — example host environment file.
+- `xplane12/host/bin/` — remote wrapper scripts copied to the target host home directory.
+- `xplane12/host/systemd/` — example systemd units for Linux host deployment.
+- `xplane12/host/tools/` — local install/restart/diag/log helpers.
+- `xplane12/host/env/xplane12.env.example` — example host environment file.
 - `xplane12/host/tests/` — Python tests for the moved XP12 host modules.
 
 ## What starts what
 
-On the remote host:
+On the remote host, the deployment examples assume wrapper scripts live in the target user's home directory. Adapt the username/home path as needed for your host:
 
-- `/home/tang/xplane12_launch.sh`
+- `/home/<user>/xplane12_launch.sh`
   - launches or reuses the real X-Plane 12 process.
-- `/home/tang/xplane12_autoflight.sh`
+- `/home/<user>/xplane12_autoflight.sh`
   - runs `xplane12/host/xplane12_web_autoflight.py` from the deployed repo checkout.
-- `/home/tang/xplane12_data_api.sh`
+- `/home/<user>/xplane12_data_api.sh`
   - runs `xplane12/host/xplane12_data_api.py` from the deployed repo checkout.
-- `/home/tang/xplane12_api_tunnel.sh`
+- `/home/<user>/xplane12_api_tunnel.sh`
   - opens the reverse SSH API tunnel.
-- `/home/tang/tunnel_xplane_49013.sh`
+- `/home/<user>/tunnel_xplane_49013.sh`
   - opens the TCP/UDP bridge and reverse tunnel for port 49013.
 
 The systemd units in `host/systemd/` call those wrappers.
@@ -34,13 +34,15 @@ The systemd units in `host/systemd/` call those wrappers.
 
 ### 1. Configure the host env file
 
-Start from:
+Start from the example file and adapt it for your host:
 
 ```bash
-cp xplane12/host/env/xplane12.env.example /home/tang/xplane12.env
+cp xplane12/host/env/xplane12.env.example /home/<user>/xplane12.env
 ```
 
 Important settings:
+
+- The systemd examples and wrapper scripts in `xplane12/host/systemd/` and `xplane12/host/bin/` still use `/home/tang` as the default deployment path. Treat that as an example convention and adapt it if your host uses a different account or home directory.
 
 - `XPLANE_HOME`
 - `XPLANE_BIN`
@@ -61,9 +63,9 @@ bash xplane12/host/tools/install_xplane12_4090_host.sh 4090
 
 What this does:
 
-- copies wrapper scripts to `/home/tang/`
-- copies service files to `/home/tang/` and installs them into `/etc/systemd/system/`
-- copies the `xplane12` Python tree to `/home/tang/Development/xplane12`
+- copies wrapper scripts to the target host home directory
+- copies service files to the target host home directory and installs them into `/etc/systemd/system/`
+- copies the `xplane12` Python tree to `${REMOTE_HOME}/Development/xplane12` by default
 - enables and starts all host services
 - runs the remote diagnostic script by default
 
