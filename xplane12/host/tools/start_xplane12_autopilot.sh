@@ -4,7 +4,7 @@ set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
     echo "Usage: $0 <ssh-target> [diag-args...]" >&2
-    echo "Example: $0 4090 --logs 120 xplane12-autoflight.service" >&2
+    echo "Example: $0 user@your-host --logs 120 xplane12-autoflight.service" >&2
     exit 1
 fi
 

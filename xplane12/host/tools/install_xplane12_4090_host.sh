@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     echo "Usage: $0 [--no-diag] <ssh-target> [diag-args...]" >&2
-    echo "Example: $0 tang@your-4090-host --logs 200 xplane12-autoflight.service" >&2
+    echo "Example: $0 user@your-host --logs 200 xplane12-autoflight.service" >&2
 }
 
 RUN_DIAG=1

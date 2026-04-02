@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [[ $# -lt 1 ]]; then
     echo "Usage: $0 <ssh-target> [diag-args...]" >&2
-    echo "Example: $0 tang@your-4090-host" >&2
+    echo "Example: $0 user@your-host" >&2
     exit 1
 fi
 

@@ -3,7 +3,7 @@ set -euo pipefail
 
 usage() {
     echo "Usage: $0 <ssh-target> <service> [--follow] [--lines N]" >&2
-    echo "Example: $0 tang@your-4090-host xplane12-autoflight.service --lines 200" >&2
+    echo "Example: $0 user@your-host xplane12-autoflight.service --lines 200" >&2
 }
 
 if [[ $# -lt 2 ]]; then

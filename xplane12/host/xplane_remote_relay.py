@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Remote X-Plane 12 telemetry relay for SSH-accessible GPU hosts.
 
-This process runs beside X-Plane on the 4090 machine. For the XP12 host runtime,
+This process runs beside X-Plane on the remote simulator host. For the XP12 host runtime,
 production telemetry is pinned to direct RREF/Web API paths; the optional
 XPlaneConnect mode remains available for explicit use or testing. In mock mode
 it generates a synthetic endless-flight feed so Unity can be tested without a

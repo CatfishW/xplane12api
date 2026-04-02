@@ -55,10 +55,10 @@ Important settings:
 - `RELAY_MODE` (production default is `rref`)
 - tunnel settings such as `TUNNEL_REMOTE_HOST`
 
-### 2. Install/update everything on the 4090 host
+### 2. Install/update everything on the target host
 
 ```bash
-bash xplane12/host/tools/install_xplane12_4090_host.sh 4090
+bash xplane12/host/tools/install_xplane12_4090_host.sh user@your-host
 ```
 
 What this does:
@@ -72,7 +72,7 @@ What this does:
 If you want install without the final diagnostic pass:
 
 ```bash
-bash xplane12/host/tools/install_xplane12_4090_host.sh --no-diag 4090
+bash xplane12/host/tools/install_xplane12_4090_host.sh --no-diag user@your-host
 ```
 
 ### 3. Start or restart the full X-Plane 12 autopilot/runtime stack
@@ -80,7 +80,7 @@ bash xplane12/host/tools/install_xplane12_4090_host.sh --no-diag 4090
 Use the convenience wrapper:
 
 ```bash
-bash xplane12/host/tools/start_xplane12_autopilot.sh 4090
+bash xplane12/host/tools/start_xplane12_autopilot.sh user@your-host
 ```
 
 This currently delegates to the installer so the host gets the latest wrappers/code and then restarts the full service stack.
@@ -88,37 +88,37 @@ This currently delegates to the installer so the host gets the latest wrappers/c
 Equivalent direct command:
 
 ```bash
-bash xplane12/host/tools/install_xplane12_4090_host.sh 4090
+bash xplane12/host/tools/install_xplane12_4090_host.sh user@your-host
 ```
 
 If the host is already up to date and you only want a service restart:
 
 ```bash
-bash xplane12/host/tools/restart_xplane12_4090_host.sh 4090
+bash xplane12/host/tools/restart_xplane12_4090_host.sh user@your-host
 ```
 
 ### 4. Run diagnostics
 
 ```bash
-bash xplane12/host/tools/run_xplane12_4090_diag.sh 4090
+bash xplane12/host/tools/run_xplane12_4090_diag.sh user@your-host
 ```
 
 You can also pass through extra diag arguments, for example:
 
 ```bash
-bash xplane12/host/tools/run_xplane12_4090_diag.sh 4090 --logs 150 xplane12-autoflight.service
+bash xplane12/host/tools/run_xplane12_4090_diag.sh user@your-host --logs 150 xplane12-autoflight.service
 ```
 
 ### 5. Check service logs
 
 ```bash
-bash xplane12/host/tools/logs_xplane12_4090_host.sh 4090 xplane12-autoflight.service --lines 200
+bash xplane12/host/tools/logs_xplane12_4090_host.sh user@your-host xplane12-autoflight.service --lines 200
 ```
 
 Follow logs live:
 
 ```bash
-bash xplane12/host/tools/logs_xplane12_4090_host.sh 4090 xplane12-autoflight.service --follow --lines 200
+bash xplane12/host/tools/logs_xplane12_4090_host.sh user@your-host xplane12-autoflight.service --follow --lines 200
 ```
 
 ## Expected healthy runtime
