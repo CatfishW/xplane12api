@@ -1,6 +1,6 @@
 # xplane12
 
-This repository is the canonical home for the active X-Plane 12 host/runtime code. The Python package lives under `xplane12/` at the repo root.
+Standalone X-Plane 12 host/runtime repository. The Python package lives under `xplane12/` at the repo root.
 
 ## Layout
 
@@ -11,7 +11,7 @@ This repository is the canonical home for the active X-Plane 12 host/runtime cod
 - `xplane12/host/systemd/` — example systemd units for Linux host deployment.
 - `xplane12/host/tools/` — local install/restart/diag/log helpers.
 - `xplane12/host/env/xplane12.env.example` — example host environment file.
-- `xplane12/host/tests/` — Python tests for the moved XP12 host modules.
+- `xplane12/host/tests/` — Python tests for the XP12 host modules.
 
 ## What starts what
 
@@ -28,7 +28,7 @@ On the remote host, the deployment examples assume wrapper scripts live in the t
 - `/home/your-user/tunnel_xplane_49013.sh`
   - opens the TCP/UDP bridge and reverse tunnel for port 49013.
 
-The systemd units in `host/systemd/` call those wrappers. They are example units and should be edited to match your actual username/home path before installation.
+The systemd units in `xplane12/host/systemd/` call those wrappers. They are example units and should be edited to match your actual username/home path before installation.
 
 ## Canonical local commands
 
@@ -262,5 +262,5 @@ sudo systemctl --no-pager --full status \
 
 - The XP12 production host is pinned to `rref` rather than `auto`/XPlaneConnect.
 - `xplane12_launch.sh` reuses an already-running real X-Plane PID when Steam forwards to an existing sim process.
-- Remote deployment paths remain stable even though the local source code now lives under `xplane12/`.
-- The moved tests are now under `xplane12/host/tests/`.
+- Remote deployment examples assume the Python checkout lives under `${REMOTE_HOME}/Development/xplane12`.
+- Tests live under `xplane12/host/tests/`.
