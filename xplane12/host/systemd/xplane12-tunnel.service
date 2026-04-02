@@ -1,0 +1,19 @@
+[Unit]
+Description=X-Plane 12 API reverse SSH tunnel
+After=network-online.target xplane12-data-api.service
+Wants=network-online.target
+Requires=xplane12-data-api.service
+
+[Service]
+Type=simple
+User=tang
+EnvironmentFile=-/home/tang/xplane12.env
+ExecStart=/home/tang/xplane12_api_tunnel.sh
+Restart=always
+RestartSec=5
+Environment=HOME=/home/tang
+Environment=USER=tang
+WorkingDirectory=/home/tang
+
+[Install]
+WantedBy=multi-user.target

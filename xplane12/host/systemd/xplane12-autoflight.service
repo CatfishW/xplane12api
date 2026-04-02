@@ -1,0 +1,18 @@
+[Unit]
+Description=X-Plane 12 endless-flight runtime
+After=network-online.target xplane12-simulator.service
+Wants=network-online.target
+Requires=xplane12-simulator.service
+
+[Service]
+Type=simple
+User=tang
+EnvironmentFile=-/home/tang/xplane12.env
+ExecStart=/home/tang/xplane12_autoflight.sh
+Restart=always
+RestartSec=5
+Environment=HOME=/home/tang
+WorkingDirectory=/home/tang
+
+[Install]
+WantedBy=multi-user.target
