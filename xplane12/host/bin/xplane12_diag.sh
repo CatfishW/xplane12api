@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE="${XPLANE_ENV_FILE:-/home/tang/xplane12.env}"
+ENV_FILE="${XPLANE_ENV_FILE:-/home/your-user/xplane12.env}"
 if [[ -f "${ENV_FILE}" ]]; then
     # shellcheck disable=SC1090
     source "${ENV_FILE}"
@@ -12,8 +12,8 @@ API_BIND_PORT="${API_BIND_PORT:-12678}"
 STREAM_HOST="${STREAM_HOST:-127.0.0.1}"
 STREAM_PORT="${STREAM_PORT:-37212}"
 API_BASE_URL="${API_BASE_URL:-http://127.0.0.1:8086/api/v3}"
-XPLANE_BIN="${XPLANE_BIN:-/home/tang/X-Plane 12/X-Plane-x86_64}"
-XPLANE_HOME="${XPLANE_HOME:-/home/tang/X-Plane 12}"
+XPLANE_BIN="${XPLANE_BIN:-/home/your-user/X-Plane 12/X-Plane-x86_64}"
+XPLANE_HOME="${XPLANE_HOME:-/home/your-user/X-Plane 12}"
 LOG_LINES="${XPLANE_DIAG_LOG_LINES:-80}"
 
 DEFAULT_SERVICES=(
@@ -69,8 +69,8 @@ printf 'SERVICES=%s\n' "${SERVICES[*]}"
 section "Filesystem"
 ls -ld "${XPLANE_HOME}" || true
 ls -l "${XPLANE_BIN}" || true
-ls -l /home/tang/xplane12*.sh /home/tang/tunnel_xplane_49013.sh 2>/dev/null || true
-ls -l /home/tang/xplane12*.env* 2>/dev/null || true
+ls -l "$(dirname "${ENV_FILE}")"/xplane12*.sh "$(dirname "${ENV_FILE}")"/tunnel_xplane_49013.sh 2>/dev/null || true
+ls -l "$(dirname "${ENV_FILE}")"/xplane12*.env* 2>/dev/null || true
 
 section "systemctl status"
 sudo systemctl --no-pager --full status "${SERVICES[@]}" || true

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE="${XPLANE_ENV_FILE:-/home/tang/xplane12.env}"
+ENV_FILE="${XPLANE_ENV_FILE:-/home/your-user/xplane12.env}"
 if [[ -f "${ENV_FILE}" ]]; then
     # shellcheck disable=SC1090
     source "${ENV_FILE}"

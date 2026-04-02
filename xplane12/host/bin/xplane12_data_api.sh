@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE="${XPLANE_ENV_FILE:-/home/tang/xplane12.env}"
+ENV_FILE="${XPLANE_ENV_FILE:-/home/your-user/xplane12.env}"
 if [[ -f "${ENV_FILE}" ]]; then
     # shellcheck disable=SC1090
     source "${ENV_FILE}"
 fi
 
-REPO_ROOT="${REPO_ROOT:-/home/tang/Development}"
+REPO_ROOT="${REPO_ROOT:-/home/your-user/Development}"
 PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
 API_BIND_HOST="${API_BIND_HOST:-127.0.0.1}"
 API_BIND_PORT="${API_BIND_PORT:-12678}"

@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ENV_FILE="${XPLANE_ENV_FILE:-/home/tang/xplane12.env}"
+ENV_FILE="${XPLANE_ENV_FILE:-/home/your-user/xplane12.env}"
 if [[ -f "${ENV_FILE}" ]]; then
     # shellcheck disable=SC1090
     source "${ENV_FILE}"
 fi
 
-XPLANE_HOME="${XPLANE_HOME:-/home/tang/X-Plane 12}"
+XPLANE_HOME="${XPLANE_HOME:-/home/your-user/X-Plane 12}"
 XPLANE_BIN="${XPLANE_BIN:-${XPLANE_HOME}/X-Plane-x86_64}"
 XPLANE_ARGS="${XPLANE_ARGS:-}"
 

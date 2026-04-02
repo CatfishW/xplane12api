@@ -28,7 +28,7 @@ On the remote host, the deployment examples assume wrapper scripts live in the t
 - `/home/<user>/tunnel_xplane_49013.sh`
   - opens the TCP/UDP bridge and reverse tunnel for port 49013.
 
-The systemd units in `host/systemd/` call those wrappers.
+The systemd units in `host/systemd/` call those wrappers. They are example units and should be edited to match your actual username/home path before installation.
 
 ## Canonical local commands
 
@@ -42,7 +42,7 @@ cp xplane12/host/env/xplane12.env.example /home/<user>/xplane12.env
 
 Important settings:
 
-- The systemd examples and wrapper scripts in `xplane12/host/systemd/` and `xplane12/host/bin/` still use `/home/tang` as the default deployment path. Treat that as an example convention and adapt it if your host uses a different account or home directory.
+- The example systemd units and wrapper scripts use `/home/your-user` placeholders. Replace `your-user` with the account that owns the deployment on your host.
 
 - `XPLANE_HOME`
 - `XPLANE_BIN`

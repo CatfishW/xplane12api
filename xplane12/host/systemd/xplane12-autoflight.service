@@ -6,13 +6,13 @@ Requires=xplane12-simulator.service
 
 [Service]
 Type=simple
-User=tang
-EnvironmentFile=-/home/tang/xplane12.env
-ExecStart=/home/tang/xplane12_autoflight.sh
+User=your-user
+EnvironmentFile=-/home/your-user/xplane12.env
+ExecStart=/home/your-user/xplane12_autoflight.sh
 Restart=always
 RestartSec=5
-Environment=HOME=/home/tang
-WorkingDirectory=/home/tang
+Environment=HOME=/home/your-user
+WorkingDirectory=/home/your-user
 
 [Install]
 WantedBy=multi-user.target

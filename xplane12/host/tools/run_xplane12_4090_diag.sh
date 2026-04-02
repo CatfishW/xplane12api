@@ -8,7 +8,7 @@ if [[ $# -lt 1 ]]; then
 fi
 
 SSH_TARGET="$1"
-REMOTE_HOME="${REMOTE_HOME:-/home/tang}"
+REMOTE_HOME="${REMOTE_HOME:-/home/your-user}"
 shift || true
 
 remote_args=()
