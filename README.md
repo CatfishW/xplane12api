@@ -17,15 +17,15 @@ This repository is the canonical home for the active X-Plane 12 host/runtime cod
 
 On the remote host, the deployment examples assume wrapper scripts live in the target user's home directory. Adapt the username/home path as needed for your host:
 
-- `/home/<user>/xplane12_launch.sh`
+- `/home/your-user/xplane12_launch.sh`
   - launches or reuses the real X-Plane 12 process.
-- `/home/<user>/xplane12_autoflight.sh`
+- `/home/your-user/xplane12_autoflight.sh`
   - runs `xplane12/host/xplane12_web_autoflight.py` from the deployed repo checkout.
-- `/home/<user>/xplane12_data_api.sh`
+- `/home/your-user/xplane12_data_api.sh`
   - runs `xplane12/host/xplane12_data_api.py` from the deployed repo checkout.
-- `/home/<user>/xplane12_api_tunnel.sh`
+- `/home/your-user/xplane12_api_tunnel.sh`
   - opens the reverse SSH API tunnel.
-- `/home/<user>/tunnel_xplane_49013.sh`
+- `/home/your-user/tunnel_xplane_49013.sh`
   - opens the TCP/UDP bridge and reverse tunnel for port 49013.
 
 The systemd units in `host/systemd/` call those wrappers. They are example units and should be edited to match your actual username/home path before installation.
@@ -37,7 +37,7 @@ The systemd units in `host/systemd/` call those wrappers. They are example units
 Start from the example file and adapt it for your host:
 
 ```bash
-cp xplane12/host/env/xplane12.env.example /home/<user>/xplane12.env
+cp xplane12/host/env/xplane12.env.example /home/your-user/xplane12.env
 ```
 
 Important settings:
