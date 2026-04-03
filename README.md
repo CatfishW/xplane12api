@@ -159,6 +159,114 @@ python3 xplane12/host/xplane12_data_api.py \
   --xp-base-url http://127.0.0.1:8086/api/v3
 ```
 
+### How XP12 data are extracted (detailed flow)
+
+The extraction path is implemented by these modules:
+
+- `xplane12/compat/legacy_categories.py` defines the full dataref subscription set (`aircraft`, `weather`, `systems`, `traffic`).
+- `xplane12/bridge/webapi_client.py` resolves dataref IDs from the XP12 Web API and continuously polls their values.
+- `SnapshotAdapter` (same file) transforms raw values into the canonical `Snapshot` model (`ownship`, `weather`, `traffic`, `automation`, `raw`, `health`, `capabilities`).
+- `xplane12/api/server.py` serves snapshots over HTTP and broadcasts Unity-facing NDJSON snapshots.
+
+At runtime, extraction is pull-based from the X-Plane Web API (`/api/v3`), not push-based from UDP:
+
+1. Build subscription list from static category definitions.
+2. Resolve each dataref name to an XP12 numeric ID via `GET /datarefs?...filter[name]=...`.
+3. Poll each resolved ID via `GET /datarefs/{id}/value`.
+4. Coerce values to numeric floats and update in-memory bridge state.
+5. Build canonical snapshot from the latest values.
+6. Serve the snapshot through HTTP endpoints and NDJSON stream.
+
+#### Flow chart: end-to-end extraction and serving
+
+```mermaid
+flowchart TD
+    A[Start xplane12_data_api.py] --> B[run_server]
+    B --> C[create_runtime]
+    C --> D[build_subscriptions from legacy_categories]
+    C --> E[XPlaneWebApiClient.start polling thread]
+    C --> F[SnapshotAdapter]
+    E --> G[Resolve datarefs to IDs via XP12 /datarefs]
+    G --> H[Poll each ID via /datarefs/id/value]
+    H --> I[Update XPlaneState values and counters]
+    I --> J[SnapshotAdapter.canonical_snapshot]
+    J --> K[HTTP API endpoints]
+    J --> L[SnapshotBroadcaster]
+    L --> M[NDJSON stream clients]
+```
+
+#### Flow chart: polling/error behavior
+
+```mermaid
+flowchart TD
+    A[Poll loop tick] --> B{Have resolved IDs?}
+    B -- No --> C[Set last_error no_supported_datarefs]
+    B -- Yes --> D[Read values in parallel]
+    D --> E{Any successful numeric values?}
+    E -- Yes --> F[Update state values sender=webapi]
+    F --> G[Clear/set first error if present]
+    E -- No --> H{IDs became stale/removed?}
+    H -- Yes --> I[Drop stale IDs, mark unresolved]
+    H -- No --> J[Keep IDs]
+    I --> K[Set error poll_no_values or specific poll_error]
+    J --> K
+    C --> L[Sleep poll_seconds]
+    G --> L
+    K --> L
+    L --> A
+```
+
+#### Flow chart: snapshot transformation
+
+```mermaid
+flowchart LR
+    A[Raw dataref map in XPlaneState] --> B[Ownship mapping]
+    A --> C[Weather mapping + unit conversions]
+    A --> D[Traffic builder]
+    A --> E[Automation mapping]
+    A --> F[Raw passthrough]
+    B --> G[Snapshot object]
+    C --> G
+    D --> G
+    E --> G
+    F --> G
+    G --> H[to_dict for HTTP]
+    G --> I[to_unity_dict for NDJSON]
+    I --> J[health/capabilities omitted]
+```
+
+#### Extraction details by stage
+
+- **Subscription stage**
+  - Categories and datarefs are declared statically in `legacy_categories.py`.
+  - Traffic expansion includes multiplayer planes (`plane1..plane19`) and TCAS slots (`0..7`).
+  - Each subscription is assigned a stable local index (starting at `2000`) for introspection via `/datarefs`.
+
+- **Resolution stage**
+  - For every unique dataref string, the client calls `/datarefs` with a name filter.
+  - Successful matches are cached in `resolved_ids`; misses go to `unresolved_datarefs`.
+  - If all lookups fail, runtime health reports `no_supported_datarefs`.
+
+- **Polling stage**
+  - Values are polled concurrently with a thread pool.
+  - Scalars, bools, and single-item arrays are coerced to float.
+  - 404 on value lookup marks dataref stale and forces re-resolution later.
+  - Packet and pair counters are updated only when there are value updates.
+
+- **Adapter stage**
+  - `canonical_snapshot()` maps raw values into domain objects:
+    - `ownship`: attitude, position, speeds, AP state/mode.
+    - `weather`: wind, barometer, temp, visibility, cloud base.
+    - `traffic`: multiplayer and TCAS-derived targets, with range/bearing calculations.
+    - `automation`: observed AP targets (heading/altitude/speed).
+  - `health` is computed from last packet age and last error state.
+  - `capabilities` advertises supported feature groups.
+
+- **Serving stage**
+  - HTTP endpoints (`/v1/snapshot`, `/v1/ownship`, `/v1/weather`, `/v1/traffic`, etc.) are generated from the latest snapshot.
+  - NDJSON broadcaster emits `to_unity_dict()` payloads once per second to connected stream clients.
+  - NDJSON intentionally excludes HTTP-only `health` and `capabilities` fields.
+
 ### HTTP endpoints
 
 #### Health
