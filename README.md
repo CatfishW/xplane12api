@@ -159,7 +159,7 @@ python3 xplane12/host/xplane12_data_api.py \
   --xp-base-url http://127.0.0.1:8086/api/v3
 ```
 
-### How XP12 data are extracted (detailed flow)
+### How XP12 data is extracted (detailed flow)
 
 The extraction path is implemented by these modules:
 
@@ -239,7 +239,7 @@ flowchart LR
 
 - **Subscription stage**
   - Categories and datarefs are declared statically in `legacy_categories.py`.
-  - Traffic expansion includes multiplayer planes (`plane1..plane19`) and TCAS slots (`0..7`).
+  - Traffic expansion includes multiplayer planes (`plane1`-`plane19`, inclusive) and TCAS slots (`0`-`7`, inclusive).
   - Each subscription is assigned a stable local index (starting at `2000`) for introspection via `/datarefs`.
 
 - **Resolution stage**
