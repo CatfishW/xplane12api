@@ -14,7 +14,7 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-DEFAULT_AIRCRAFT_PATH = "Aircraft/Laminar Research/Sikorsky S-76/S-76C.acf"
+DEFAULT_AIRCRAFT_PATH = "Aircraft/Laminar Research/Cessna Citation X/Cessna_CitationX.acf"
 CENTER_LATITUDE = 33.6407
 CENTER_LONGITUDE = -84.4277
 ORBIT_RADIUS_DEG = 0.015
@@ -52,6 +52,45 @@ R22_FLIGHT_PROFILE = FlightProfile(
     pitch_deg=4.0,
 )
 
+CITATION_X_FLIGHT_PROFILE = FlightProfile(
+    altitude_m=3657.6,
+    speed_mps=123.0,
+    pitch_deg=1.5,
+)
+
+BARON_58_FLIGHT_PROFILE = FlightProfile(
+    altitude_m=2743.2,
+    speed_mps=82.0,
+    pitch_deg=2.0,
+)
+
+SF50_FLIGHT_PROFILE = FlightProfile(
+    altitude_m=3352.8,
+    speed_mps=108.0,
+    pitch_deg=1.5,
+)
+
+B738_FLIGHT_PROFILE = FlightProfile(
+    altitude_m=5486.4,
+    speed_mps=138.0,
+    pitch_deg=1.2,
+)
+
+MD82_FLIGHT_PROFILE = FlightProfile(
+    altitude_m=5181.6,
+    speed_mps=131.0,
+    pitch_deg=1.4,
+)
+
+A330_FLIGHT_PROFILE = FlightProfile(
+    altitude_m=6705.6,
+    speed_mps=154.0,
+    pitch_deg=1.2,
+)
+
+_COMMAND_ID_CACHE: dict[str, dict[str, int]] = {}
+_DATAREF_ID_CACHE: dict[str, dict[str, int]] = {}
+
 
 def request_json(method: str, path: str, body: JSONValue | None = None, *, base_url: str = BASE_URL) -> JSONValue:
     payload = None if body is None else json.dumps(body).encode("utf-8")
@@ -88,11 +127,84 @@ def build_initial_air_start() -> tuple[float, float, float]:
 
 def aircraft_profile_for_path(aircraft_path: str) -> FlightProfile:
     normalized = aircraft_path.casefold()
+    if "citation x" in normalized:
+        return CITATION_X_FLIGHT_PROFILE
+    if "baron 58" in normalized:
+        return BARON_58_FLIGHT_PROFILE
+    if "vision sf50" in normalized:
+        return SF50_FLIGHT_PROFILE
+    if "737-800" in normalized:
+        return B738_FLIGHT_PROFILE
+    if "md-82" in normalized:
+        return MD82_FLIGHT_PROFILE
+    if "a330" in normalized:
+        return A330_FLIGHT_PROFILE
     if "sikorsky s-76" in normalized:
         return S76_FLIGHT_PROFILE
     if "robinson r22" in normalized:
         return R22_FLIGHT_PROFILE
     return DEFAULT_FLIGHT_PROFILE
+
+
+def _lookup_named_id(
+    *,
+    path: str,
+    name: str,
+    cache: dict[str, dict[str, int]],
+    base_url: str,
+) -> int:
+    mapping = cache.get(base_url)
+    if mapping is None:
+        payload = request_json("GET", path, base_url=base_url)
+        data = payload.get("data", []) if isinstance(payload, dict) else []
+        mapping = {
+            str(item["name"]): int(item["id"])
+            for item in data
+            if isinstance(item, dict) and "name" in item and "id" in item
+        }
+        cache[base_url] = mapping
+    try:
+        return mapping[name]
+    except KeyError as error:
+        raise KeyError(f"Unknown X-Plane resource: {name}") from error
+
+
+def lookup_command_id(command_name: str, *, base_url: str = BASE_URL) -> int:
+    return _lookup_named_id(
+        path="/commands",
+        name=command_name,
+        cache=_COMMAND_ID_CACHE,
+        base_url=base_url,
+    )
+
+
+def lookup_dataref_id(dataref_name: str, *, base_url: str = BASE_URL) -> int:
+    return _lookup_named_id(
+        path="/datarefs",
+        name=dataref_name,
+        cache=_DATAREF_ID_CACHE,
+        base_url=base_url,
+    )
+
+
+def activate_command(command_name: str, *, duration: float = 0.0, base_url: str = BASE_URL) -> None:
+    command_id = lookup_command_id(command_name, base_url=base_url)
+    _ = request_json(
+        "POST",
+        f"/command/{command_id}/activate",
+        {"duration": max(0.0, float(duration))},
+        base_url=base_url,
+    )
+
+
+def set_dataref(dataref_name: str, value: JSONValue, *, base_url: str = BASE_URL) -> None:
+    dataref_id = lookup_dataref_id(dataref_name, base_url=base_url)
+    _ = request_json(
+        "PATCH",
+        f"/datarefs/{dataref_id}/value",
+        {"data": value},
+        base_url=base_url,
+    )
 
 
 def build_air_start_payload(*, aircraft_path: str = DEFAULT_AIRCRAFT_PATH) -> dict[str, JSONValue]:

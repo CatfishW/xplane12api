@@ -26,7 +26,11 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional, Protocol, Sequence, Tuple, cast
 
 from xplane12.autopilot import start_air_session_once
-from xplane12.autopilot.controller import DEFAULT_AIRCRAFT_PATH
+from xplane12.autopilot.controller import (
+    DEFAULT_AIRCRAFT_PATH,
+    activate_command,
+    set_dataref,
+)
 
 
 def utc_now() -> str:
@@ -230,6 +234,228 @@ class WebApiRecoveryController:
             and (abs(ownship.roll_deg) >= 35.0 or abs(ownship.pitch_deg) >= 20.0)
         )
         return severe_attitude or broken_airspeed or crashed_on_surface
+
+
+class WebApiHoldController:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        aircraft_path: str,
+        target_altitude_ft: float,
+        target_heading_deg: float,
+        target_speed_kt: float,
+    ) -> None:
+        self._base_url = base_url
+        self._aircraft_path = aircraft_path
+        self._normalized_path = aircraft_path.casefold()
+        self._target_altitude_ft = target_altitude_ft
+        self._target_altitude_m = target_altitude_ft * 0.3048
+        self._target_heading_deg = normalize_heading(target_heading_deg)
+        self._target_speed_kt = target_speed_kt
+        self._is_rotorcraft = any(
+            token in self._normalized_path for token in ("sikorsky s-76", "robinson r22")
+        )
+        self._supports_efis_weather = any(
+            token in self._normalized_path
+            for token in ("citation x", "baron 58", "737-800", "md-82", "a330")
+        )
+        self._supports_primus_tcas_window = "citation x" in self._normalized_path
+        self._uses_gns = any(
+            token in self._normalized_path
+            for token in ("g530", "g430", "sikorsky s-76", "robinson r22", "172 sp", "king air", "baron 58")
+        )
+        self._display_setup_done = False
+        self._last_gns_ack_at = 0.0
+        self._last_target_sync_at = 0.0
+        self._last_mode_arm_at = 0.0
+        self._last_manual_trim_at = 0.0
+        self._last_log_at = 0.0
+
+    def observe(self, snapshot: TelemetrySnapshot) -> AutomationState:
+        now = time.monotonic()
+        self._apply_display_setup(snapshot)
+        self._dismiss_gns_startup(snapshot, now)
+
+        if self._is_rotorcraft:
+            return AutomationState(
+                controller="webapi-rotorcraft-observer",
+                mode="observe",
+                recovery_active=False,
+                target_altitude_m=self._target_altitude_m,
+                target_heading_deg=self._target_heading_deg,
+                target_speed_kt=self._target_speed_kt,
+            )
+
+        self._sync_targets(now)
+
+        ownship = snapshot.ownship
+        altitude_error_ft = (self._target_altitude_m - ownship.altitude_m) * 3.28084
+        slow_flight = ownship.ground_speed_kt < max(110.0, self._target_speed_kt * 0.6)
+        unstable_attitude = abs(ownship.roll_deg) >= 20.0 or abs(ownship.pitch_deg) >= 10.0
+        far_from_target_altitude = abs(altitude_error_ft) >= 1400.0
+        needs_rearm = (
+            not ownship.autopilot_engaged
+            or slow_flight
+            or unstable_attitude
+            or far_from_target_altitude
+        )
+
+        mode = "hold"
+        recovery_active = False
+        if needs_rearm and now - self._last_mode_arm_at >= 6.0:
+            self._engage_hold_modes(unstable_attitude=unstable_attitude)
+            self._last_mode_arm_at = now
+            mode = "rearm"
+            recovery_active = True
+
+        if (needs_rearm or ownship.ground_speed_kt < self._target_speed_kt - 25.0) and now - self._last_manual_trim_at >= 0.6:
+            self._apply_direct_trim(snapshot)
+            self._last_manual_trim_at = now
+            recovery_active = True
+            if mode == "hold":
+                mode = "assist"
+        elif ownship.autopilot_engaged and now - self._last_manual_trim_at >= 4.0:
+            self._neutralize_manual_inputs()
+            self._last_manual_trim_at = now
+
+        return AutomationState(
+            controller="webapi-fixed-wing-hold",
+            mode=mode,
+            recovery_active=recovery_active,
+            target_altitude_m=self._target_altitude_m,
+            target_heading_deg=self._target_heading_deg,
+            target_speed_kt=self._target_speed_kt,
+        )
+
+    def _apply_display_setup(self, snapshot: TelemetrySnapshot) -> None:
+        if (
+            self._display_setup_done
+            or not self._supports_efis_weather
+            or snapshot.ownship.altitude_agl_m <= 10.0
+        ):
+            return
+        for dataref_name, value in (
+            ("sim/cockpit2/EFIS/EFIS_tcas_on", 1.0),
+            ("sim/cockpit2/EFIS/EFIS_tcas_on_copilot", 1.0),
+        ):
+            self._try_set_dataref(dataref_name, value)
+        for command_name in (
+            "sim/instruments/EFIS_wxr",
+            "sim/instruments/EFIS_copilot_wxr",
+            "sim/instruments/EFIS_wxr_radar_wx",
+            "sim/instruments/EFIS_wxr_radar_wx_copilot",
+            "sim/instruments/EFIS_wxr_auto_tilt_on",
+            "sim/instruments/EFIS_wxr_auto_tilt_on_copilot",
+            "sim/instruments/EFIS_wxr_gcs_on",
+            "sim/instruments/EFIS_wxr_gcs_on_copilot",
+            "sim/instruments/EFIS_wxr_pws_on",
+            "sim/instruments/EFIS_wxr_multiscan_auto",
+            "sim/instruments/EFIS_wxr_multiscan_auto_copilot",
+        ):
+            self._try_activate(command_name)
+        if self._supports_primus_tcas_window:
+            for command_name in (
+                "sim/instruments/EFIS_tcas_window",
+                "sim/instruments/EFIS_copilot_tcas_window",
+            ):
+                self._try_activate(command_name)
+        self._display_setup_done = True
+
+    def _dismiss_gns_startup(self, snapshot: TelemetrySnapshot, now: float) -> None:
+        if (
+            not self._uses_gns
+            or now - self._last_gns_ack_at < 15.0
+            or snapshot.ownship.altitude_agl_m <= 10.0
+        ):
+            return
+        self._try_activate("sim/GPS/g430n1_ent")
+        self._try_activate("sim/GPS/g430n1_ent")
+        self._last_gns_ack_at = now
+
+    def _sync_targets(self, now: float) -> None:
+        if now - self._last_target_sync_at < 2.0:
+            return
+        for dataref_name, value in (
+            ("sim/cockpit2/autopilot/autopilot_electric_master", 1.0),
+            ("sim/cockpit2/autopilot/master_flight_director", 1.0),
+            ("sim/cockpit/autopilot/heading_mag", self._target_heading_deg),
+            ("sim/cockpit/autopilot/heading_mag2", self._target_heading_deg),
+            ("sim/cockpit/autopilot/altitude", self._target_altitude_ft),
+            ("sim/cockpit/autopilot/airspeed", self._target_speed_kt),
+            ("sim/cockpit/autopilot/vertical_velocity", 0.0),
+            ("sim/cockpit2/autopilot/heading_dial_deg_mag_pilot", self._target_heading_deg),
+            ("sim/cockpit2/autopilot/heading_dial_deg_mag_copilot", self._target_heading_deg),
+            ("sim/cockpit2/autopilot/altitude_dial_ft", self._target_altitude_ft),
+            ("sim/cockpit2/autopilot/airspeed_dial_kts", self._target_speed_kt),
+            ("sim/cockpit2/autopilot/airspeed_dial_kts_mach", self._target_speed_kt),
+            ("sim/cockpit2/autopilot/vvi_dial_fpm", 0.0),
+        ):
+            self._try_set_dataref(dataref_name, value)
+        self._last_target_sync_at = now
+
+    def _engage_hold_modes(self, *, unstable_attitude: bool) -> None:
+        if unstable_attitude:
+            self._try_activate("sim/autopilot/return_to_level")
+        for command_name in (
+            "sim/autopilot/fdir_on",
+            "sim/autopilot/servos_on",
+            "sim/autopilot/heading",
+            "sim/autopilot/altitude_hold",
+            "sim/autopilot/autothrottle_on",
+        ):
+            self._try_activate(command_name)
+
+    def _apply_direct_trim(self, snapshot: TelemetrySnapshot) -> None:
+        ownship = snapshot.ownship
+        pitch_cmd = clamp(
+            ((self._target_altitude_m - ownship.altitude_m) * 3.28084) / 4500.0
+            - ownship.vertical_speed_fpm / 3200.0,
+            -0.18,
+            0.18,
+        )
+        roll_cmd = clamp(
+            heading_delta(self._target_heading_deg, ownship.heading_deg) / 70.0
+            - ownship.roll_deg / 55.0,
+            -0.22,
+            0.22,
+        )
+        throttle_cmd = clamp(
+            0.58 + (self._target_speed_kt - ownship.ground_speed_kt) / 170.0,
+            0.34,
+            0.92,
+        )
+        self._try_set_dataref("sim/joystick/yoke_pitch_ratio", pitch_cmd)
+        self._try_set_dataref("sim/joystick/yoke_roll_ratio", roll_cmd)
+        self._try_set_dataref("sim/joystick/yoke_heading_ratio", 0.0)
+        self._try_set_dataref("sim/cockpit2/engine/actuators/throttle_ratio_all", throttle_cmd)
+
+    def _neutralize_manual_inputs(self) -> None:
+        for dataref_name in (
+            "sim/joystick/yoke_pitch_ratio",
+            "sim/joystick/yoke_roll_ratio",
+            "sim/joystick/yoke_heading_ratio",
+        ):
+            self._try_set_dataref(dataref_name, 0.0)
+
+    def _try_activate(self, command_name: str) -> None:
+        try:
+            activate_command(command_name, base_url=self._base_url)
+        except Exception as error:
+            self._maybe_log_error(f"command {command_name} failed: {error}")
+
+    def _try_set_dataref(self, dataref_name: str, value: float) -> None:
+        try:
+            set_dataref(dataref_name, float(value), base_url=self._base_url)
+        except Exception as error:
+            self._maybe_log_error(f"dataref {dataref_name} failed: {error}")
+
+    def _maybe_log_error(self, message: str) -> None:
+        now = time.monotonic()
+        if now - self._last_log_at < 15.0:
+            return
+        self._last_log_at = now
+        print(f"[xplane_remote_relay] {message}", flush=True)
 
 
 class FlightSource(Protocol):
@@ -1092,6 +1318,7 @@ class AutoFlightSource:
 
 def run(args: argparse.Namespace) -> None:
     server = BroadcastServer(args.listen_host, args.listen_port)
+    hold_controller: WebApiHoldController | None = None
     recovery_controller: WebApiRecoveryController | None = None
     if args.mode == "mock":
         source = MockFlightSource(
@@ -1151,6 +1378,14 @@ def run(args: argparse.Namespace) -> None:
             min_restart_interval_seconds=args.restart_min_interval_seconds,
             grace_seconds=args.restart_grace_seconds,
         )
+    if args.webapi_base_url and args.mode in {"rref", "auto"}:
+        hold_controller = WebApiHoldController(
+            base_url=args.webapi_base_url,
+            aircraft_path=args.aircraft_path or DEFAULT_AIRCRAFT_PATH,
+            target_altitude_ft=args.target_altitude_ft,
+            target_heading_deg=args.target_heading_deg,
+            target_speed_kt=args.target_speed_kt,
+        )
 
     period = 1.0 / args.broadcast_hz
     deadline = (
@@ -1164,6 +1399,8 @@ def run(args: argparse.Namespace) -> None:
         while deadline is None or time.time() < deadline:
             started = time.time()
             snapshot = source.next_snapshot()
+            if hold_controller is not None:
+                snapshot.automation = hold_controller.observe(snapshot)
             server.broadcast(snapshot)
             if recovery_controller is not None:
                 recovery_controller.observe(snapshot)
@@ -1185,10 +1422,10 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--listen-port", type=int, default=37211)
     parser.add_argument("--broadcast-hz", type=float, default=5.0)
     parser.add_argument("--duration-seconds", type=float, default=0.0)
-    parser.add_argument("--target-altitude-ft", type=float, default=8500.0)
+    parser.add_argument("--target-altitude-ft", type=float, default=12000.0)
     parser.add_argument("--target-heading-deg", type=float, default=90.0)
-    parser.add_argument("--target-speed-kt", type=float, default=160.0)
-    parser.add_argument("--recovery-altitude-ft", type=float, default=4500.0)
+    parser.add_argument("--target-speed-kt", type=float, default=240.0)
+    parser.add_argument("--recovery-altitude-ft", type=float, default=8000.0)
     parser.add_argument("--mock-traffic-count", type=int, default=5)
     parser.add_argument("--xplane-host", default="127.0.0.1")
     parser.add_argument("--xplane-port", type=int, default=49009)

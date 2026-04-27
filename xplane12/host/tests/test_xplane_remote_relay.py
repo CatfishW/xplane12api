@@ -5,6 +5,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -164,6 +165,97 @@ class XPlaneRemoteRelayTests(unittest.TestCase):
                 source.close()
             setattr(MODULE, "XPlaneConnectSource", original_xpc)
             setattr(MODULE, "RrefFlightSource", original_rref)
+
+    def test_webapi_hold_controller_rearms_fixed_wing_and_sets_displays_once(self):
+        source = MODULE.MockFlightSource(12000.0, 240.0, 90.0, 1)
+        snapshot = source.next_snapshot()
+        snapshot.ownship.altitude_m = 12000.0 * 0.3048
+        snapshot.ownship.altitude_agl_m = 1500.0
+        snapshot.ownship.autopilot_engaged = False
+        snapshot.ownship.autopilot_mode = 0
+        snapshot.ownship.ground_speed_kt = 180.0
+
+        controller = MODULE.WebApiHoldController(
+            base_url="http://127.0.0.1:8086/api/v3",
+            aircraft_path="Aircraft/Laminar Research/Cessna Citation X/Cessna_CitationX.acf",
+            target_altitude_ft=12000.0,
+            target_heading_deg=90.0,
+            target_speed_kt=240.0,
+        )
+
+        with mock.patch.object(MODULE.time, "monotonic", return_value=100.0), mock.patch.object(
+            MODULE, "activate_command"
+        ) as activate_mock, mock.patch.object(MODULE, "set_dataref") as set_dataref_mock:
+            state = controller.observe(snapshot)
+
+        self.assertEqual("webapi-fixed-wing-hold", state.controller)
+        self.assertEqual("rearm", state.mode)
+        self.assertTrue(state.recovery_active)
+        activated_commands = [call.args[0] for call in activate_mock.call_args_list]
+        self.assertIn("sim/autopilot/servos_on", activated_commands)
+        self.assertIn("sim/instruments/EFIS_wxr_radar_wx", activated_commands)
+        self.assertIn("sim/instruments/EFIS_tcas_window", activated_commands)
+        written_datarefs = [call.args[0] for call in set_dataref_mock.call_args_list]
+        self.assertIn("sim/cockpit2/EFIS/EFIS_tcas_on", written_datarefs)
+        self.assertIn("sim/cockpit2/autopilot/altitude_dial_ft", written_datarefs)
+
+    def test_run_replaces_snapshot_automation_with_hold_controller_output(self):
+        snapshot = MODULE.MockFlightSource(12000.0, 240.0, 90.0, 1).next_snapshot()
+        snapshot.source_mode = "rref"
+        snapshot.automation = MODULE.AutomationState(
+            controller="rref-telemetry-observer",
+            mode="observe",
+            recovery_active=False,
+            target_altitude_m=0.0,
+            target_heading_deg=0.0,
+            target_speed_kt=0.0,
+        )
+
+        fake_source = mock.Mock()
+        fake_source.next_snapshot.return_value = snapshot
+        fake_server = mock.Mock()
+        captured: list[MODULE.TelemetrySnapshot] = []
+
+        def stop_after_first_broadcast(broadcast_snapshot: MODULE.TelemetrySnapshot) -> None:
+            captured.append(broadcast_snapshot)
+            raise KeyboardInterrupt()
+
+        fake_server.broadcast.side_effect = stop_after_first_broadcast
+        hold_state = MODULE.AutomationState(
+            controller="webapi-fixed-wing-hold",
+            mode="hold",
+            recovery_active=False,
+            target_altitude_m=12000.0 * 0.3048,
+            target_heading_deg=90.0,
+            target_speed_kt=240.0,
+        )
+
+        args = MODULE.build_arg_parser().parse_args(
+            [
+                "--mode",
+                "rref",
+                "--webapi-base-url",
+                "http://127.0.0.1:8086/api/v3",
+                "--aircraft-path",
+                "Aircraft/Laminar Research/Cessna Citation X/Cessna_CitationX.acf",
+            ]
+        )
+
+        with mock.patch.object(MODULE, "BroadcastServer", return_value=fake_server), mock.patch.object(
+            MODULE, "RrefFlightSource", return_value=fake_source
+        ), mock.patch.object(MODULE, "WebApiHoldController") as hold_controller_cls:
+            hold_controller = mock.Mock()
+            hold_controller.observe.return_value = hold_state
+            hold_controller_cls.return_value = hold_controller
+            with self.assertRaises(KeyboardInterrupt):
+                MODULE.run(args)
+
+        self.assertEqual(1, len(captured))
+        self.assertIs(captured[0], snapshot)
+        self.assertEqual(hold_state, captured[0].automation)
+        hold_controller.observe.assert_called_once_with(snapshot)
+        fake_server.close.assert_called_once()
+        fake_source.close.assert_called_once()
 
 
 if __name__ == "__main__":
