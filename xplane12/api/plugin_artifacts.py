@@ -7,7 +7,7 @@ import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageStat
 
 
 class ArtifactUnavailable(RuntimeError):
@@ -15,20 +15,50 @@ class ArtifactUnavailable(RuntimeError):
 
 
 GAUGE_DEVICE_ORDER = [
+    "g1000_mfd",
+    "g1000_pfd_1",
+    "g1000_pfd_2",
     "gns530_1",
     "gns530_2",
     "gns430_1",
     "gns430_2",
+    "cdu739_1",
+    "cdu739_2",
+    "cdu815_1",
+    "cdu815_2",
     "primus_pfd_1",
     "primus_mfd_1",
-    "primus_mfd_3",
     "primus_mfd_2",
+    "primus_mfd_3",
     "primus_pfd_2",
+    "primus_rmu_1",
+    "primus_rmu_2",
+    "mcdu_1",
+    "mcdu_2",
+    "mcdu_3",
 ]
 
 PRIMARY_ARTIFACTS = {
-    "weather": ["weather_radar_pilot", "gns530_1", "gns430_1", "primus_mfd_1", "primus_mfd_3"],
-    "traffic": ["gns530_1", "gns430_1", "primus_mfd_2", "primus_mfd_3", "primus_mfd_1"],
+    "weather": [
+        "weather_radar_pilot",
+        "g1000_mfd",
+        "gns530_1",
+        "gns530_2",
+        "gns430_1",
+        "gns430_2",
+        "primus_mfd_1",
+        "primus_mfd_3",
+    ],
+    "traffic": [
+        "g1000_mfd",
+        "gns530_1",
+        "gns530_2",
+        "gns430_1",
+        "gns430_2",
+        "primus_mfd_2",
+        "primus_mfd_3",
+        "primus_mfd_1",
+    ],
 }
 
 
@@ -67,7 +97,7 @@ class PluginArtifactStore:
         gauges: list[dict[str, object]] = []
         for slug in GAUGE_DEVICE_ORDER:
             try:
-                info = self._artifact_info(slug)
+                info = self._artifact_info(slug, allow_blank=False)
             except ArtifactUnavailable:
                 continue
             gauges.append(
@@ -142,12 +172,13 @@ class PluginArtifactStore:
         candidates = PRIMARY_ARTIFACTS.get(key)
         if candidates is None:
             raise ArtifactUnavailable(f"unknown_artifact:{key}")
-        for slug in candidates:
-            try:
-                _ = self._artifact_info(slug)
-                return slug
-            except ArtifactUnavailable:
-                continue
+        for allow_blank in (False, True):
+            for slug in candidates:
+                try:
+                    _ = self._artifact_info(slug, allow_blank=allow_blank)
+                    return slug
+                except ArtifactUnavailable:
+                    continue
         raise ArtifactUnavailable(f"artifact_unavailable:{key}")
 
     def _try_resolve_slug(self, key: str) -> str | None:
@@ -156,7 +187,7 @@ class PluginArtifactStore:
         except ArtifactUnavailable:
             return None
 
-    def _artifact_info(self, slug: str) -> ArtifactInfo:
+    def _artifact_info(self, slug: str, *, allow_blank: bool = True) -> ArtifactInfo:
         path = self._base_dir / f"{slug}.ppm"
         try:
             stat = path.stat()
@@ -166,7 +197,10 @@ class PluginArtifactStore:
         if age_seconds > self._freshness_seconds:
             raise ArtifactUnavailable(f"stale_artifact:{slug}")
         with Image.open(path) as image:
-            width, height = image.size
+            rgb = image.convert("RGB")
+            width, height = rgb.size
+            if not allow_blank and self._is_nearly_black(rgb):
+                raise ArtifactUnavailable(f"blank_artifact:{slug}")
         return ArtifactInfo(slug=slug, path=path, width=width, height=height, updated_at=stat.st_mtime)
 
     @staticmethod
@@ -174,3 +208,8 @@ class PluginArtifactStore:
         buffer = io.BytesIO()
         image.save(buffer, format="PNG")
         return buffer.getvalue()
+
+    @staticmethod
+    def _is_nearly_black(image: Image.Image) -> bool:
+        stat = ImageStat.Stat(image)
+        return max(high for _low, high in stat.extrema) <= 8 and max(stat.mean) <= 1.5

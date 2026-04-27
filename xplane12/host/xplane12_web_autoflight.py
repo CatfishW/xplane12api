@@ -92,8 +92,14 @@ def build_relay_args(args: argparse.Namespace) -> argparse.Namespace:
         "rref_frequency_hz",
         "rref_sample_timeout_seconds",
         "traffic_slots",
+        "restart_on_crash",
+        "restart_confirm_seconds",
+        "restart_min_interval_seconds",
+        "restart_grace_seconds",
     ):
         setattr(relay_args, name, getattr(args, name))
+    relay_args.webapi_base_url = args.api_base_url
+    relay_args.aircraft_path = args.aircraft_path
     return relay_args
 
 
@@ -108,6 +114,11 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--xplane-working-directory")
     parser.add_argument("--aircraft-path")
     parser.add_argument("--skip-air-start", action="store_true")
+    parser.add_argument("--restart-on-crash", action="store_true", default=True)
+    parser.add_argument("--no-restart-on-crash", dest="restart_on_crash", action="store_false")
+    parser.add_argument("--restart-confirm-seconds", type=float, default=8.0)
+    parser.add_argument("--restart-min-interval-seconds", type=float, default=45.0)
+    parser.add_argument("--restart-grace-seconds", type=float, default=25.0)
     parser.add_argument("--mode", choices=("mock", "xpc", "rref", "auto"), default="rref")
     parser.add_argument("--listen-host", default="127.0.0.1")
     parser.add_argument("--listen-port", type=int, default=37211)

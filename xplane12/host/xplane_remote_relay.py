@@ -25,6 +25,9 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Protocol, Sequence, Tuple, cast
 
+from xplane12.autopilot import start_air_session_once
+from xplane12.autopilot.controller import DEFAULT_AIRCRAFT_PATH
+
 
 def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -161,6 +164,72 @@ class TelemetrySnapshot:
     traffic: List[TrafficTarget] = field(default_factory=list)
     raw: Dict[str, float] = field(default_factory=dict)
     automation: Optional[AutomationState] = None
+
+
+class WebApiRecoveryController:
+    def __init__(
+        self,
+        *,
+        base_url: str,
+        aircraft_path: str,
+        confirm_seconds: float,
+        min_restart_interval_seconds: float,
+        grace_seconds: float,
+    ) -> None:
+        self._base_url = base_url
+        self._aircraft_path = aircraft_path
+        self._confirm_seconds = max(1.0, confirm_seconds)
+        self._min_restart_interval_seconds = max(10.0, min_restart_interval_seconds)
+        self._grace_seconds = max(5.0, grace_seconds)
+        self._unhealthy_since: float | None = None
+        self._last_restart_at = time.monotonic()
+
+    def observe(self, snapshot: TelemetrySnapshot) -> bool:
+        now = time.monotonic()
+        if now - self._last_restart_at < self._grace_seconds:
+            self._unhealthy_since = None
+            return False
+        if not self._is_unhealthy(snapshot):
+            self._unhealthy_since = None
+            return False
+        if self._unhealthy_since is None:
+            self._unhealthy_since = now
+            return False
+        if now - self._unhealthy_since < self._confirm_seconds:
+            return False
+        if now - self._last_restart_at < self._min_restart_interval_seconds:
+            return False
+
+        ownship = snapshot.ownship
+        print(
+            "[xplane_remote_relay] restarting flight after upset "
+            f"agl_m={ownship.altitude_agl_m:.1f} gs_kt={ownship.ground_speed_kt:.1f} "
+            f"pitch={ownship.pitch_deg:.1f} roll={ownship.roll_deg:.1f}",
+            flush=True,
+        )
+        start_air_session_once(
+            base_url=self._base_url,
+            aircraft_path=self._aircraft_path,
+        )
+        self._last_restart_at = time.monotonic()
+        self._unhealthy_since = None
+        return True
+
+    @staticmethod
+    def _is_unhealthy(snapshot: TelemetrySnapshot) -> bool:
+        ownship = snapshot.ownship
+        severe_attitude = abs(ownship.roll_deg) >= 70.0 or abs(ownship.pitch_deg) >= 35.0
+        broken_airspeed = (
+            ownship.indicated_airspeed_kt >= 180.0
+            and ownship.true_airspeed_kt <= 10.0
+            and ownship.ground_speed_kt <= 10.0
+        )
+        crashed_on_surface = (
+            ownship.altitude_agl_m <= 3.0
+            and ownship.ground_speed_kt <= 8.0
+            and (abs(ownship.roll_deg) >= 35.0 or abs(ownship.pitch_deg) >= 20.0)
+        )
+        return severe_attitude or broken_airspeed or crashed_on_surface
 
 
 class FlightSource(Protocol):
@@ -1023,6 +1092,7 @@ class AutoFlightSource:
 
 def run(args: argparse.Namespace) -> None:
     server = BroadcastServer(args.listen_host, args.listen_port)
+    recovery_controller: WebApiRecoveryController | None = None
     if args.mode == "mock":
         source = MockFlightSource(
             args.target_altitude_ft,
@@ -1073,6 +1143,15 @@ def run(args: argparse.Namespace) -> None:
         )
         closer = source.close
 
+    if args.restart_on_crash and args.webapi_base_url:
+        recovery_controller = WebApiRecoveryController(
+            base_url=args.webapi_base_url,
+            aircraft_path=args.aircraft_path or DEFAULT_AIRCRAFT_PATH,
+            confirm_seconds=args.restart_confirm_seconds,
+            min_restart_interval_seconds=args.restart_min_interval_seconds,
+            grace_seconds=args.restart_grace_seconds,
+        )
+
     period = 1.0 / args.broadcast_hz
     deadline = (
         time.time() + args.duration_seconds if args.duration_seconds > 0 else None
@@ -1086,6 +1165,8 @@ def run(args: argparse.Namespace) -> None:
             started = time.time()
             snapshot = source.next_snapshot()
             server.broadcast(snapshot)
+            if recovery_controller is not None:
+                recovery_controller.observe(snapshot)
             time.sleep(max(0.0, period - (time.time() - started)))
     finally:
         server.close()
@@ -1117,6 +1198,12 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--rref-frequency-hz", type=float, default=10.0)
     parser.add_argument("--rref-sample-timeout-seconds", type=float, default=1.25)
     parser.add_argument("--traffic-slots", type=int, default=5)
+    parser.add_argument("--webapi-base-url")
+    parser.add_argument("--aircraft-path", default=DEFAULT_AIRCRAFT_PATH)
+    parser.add_argument("--restart-on-crash", action="store_true")
+    parser.add_argument("--restart-confirm-seconds", type=float, default=8.0)
+    parser.add_argument("--restart-min-interval-seconds", type=float, default=45.0)
+    parser.add_argument("--restart-grace-seconds", type=float, default=25.0)
     return parser
 
 

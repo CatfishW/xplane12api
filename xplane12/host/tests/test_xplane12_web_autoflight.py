@@ -57,6 +57,12 @@ class XPlane12WebAutoflightTests(unittest.TestCase):
             rref_frequency_hz=10.0,
             rref_sample_timeout_seconds=1.25,
             traffic_slots=5,
+            restart_on_crash=True,
+            restart_confirm_seconds=8.0,
+            restart_min_interval_seconds=45.0,
+            restart_grace_seconds=25.0,
+            api_base_url="http://127.0.0.1:8086/api/v3",
+            aircraft_path="Aircraft/Laminar Research/Sikorsky S-76/S-76C.acf",
         )
 
         relay_args = MODULE.build_relay_args(args)
@@ -66,6 +72,9 @@ class XPlane12WebAutoflightTests(unittest.TestCase):
         self.assertEqual(8500.0, relay_args.target_altitude_ft)
         self.assertEqual(49009, relay_args.xplane_port)
         self.assertEqual(49004, relay_args.rref_listen_port)
+        self.assertTrue(relay_args.restart_on_crash)
+        self.assertEqual(args.api_base_url, relay_args.webapi_base_url)
+        self.assertEqual(args.aircraft_path, relay_args.aircraft_path)
 
     def test_run_launches_xplane_when_command_is_provided(self):
         args = MODULE.build_arg_parser().parse_args(

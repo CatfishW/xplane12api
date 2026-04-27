@@ -48,11 +48,25 @@ std::vector<DeviceSpec> g_devices = {
     {xplm_device_GNS430_2, "gns430_2"},
     {xplm_device_GNS530_1, "gns530_1"},
     {xplm_device_GNS530_2, "gns530_2"},
+    {xplm_device_CDU739_1, "cdu739_1"},
+    {xplm_device_CDU739_2, "cdu739_2"},
+    {xplm_device_G1000_PFD_1, "g1000_pfd_1"},
+    {xplm_device_G1000_MFD, "g1000_mfd"},
+    {xplm_device_G1000_PFD_2, "g1000_pfd_2"},
+    {xplm_device_CDU815_1, "cdu815_1"},
+    {xplm_device_CDU815_2, "cdu815_2"},
     {xplm_device_Primus_PFD_1, "primus_pfd_1"},
-    {xplm_device_Primus_MFD_1, "primus_mfd_1"},
-    {xplm_device_Primus_MFD_3, "primus_mfd_3"},
-    {xplm_device_Primus_MFD_2, "primus_mfd_2"},
     {xplm_device_Primus_PFD_2, "primus_pfd_2"},
+    {xplm_device_Primus_MFD_1, "primus_mfd_1"},
+    {xplm_device_Primus_MFD_2, "primus_mfd_2"},
+    {xplm_device_Primus_MFD_3, "primus_mfd_3"},
+    {xplm_device_Primus_RMU_1, "primus_rmu_1"},
+    {xplm_device_Primus_RMU_2, "primus_rmu_2"},
+    {xplm_device_MCDU_1, "mcdu_1"},
+    {xplm_device_MCDU_2, "mcdu_2"},
+#if defined(XPLM430)
+    {xplm_device_MCDU_3, "mcdu_3"},
+#endif
 };
 
 std::unordered_map<std::string, ArtifactBuffer> g_artifacts;
@@ -149,6 +163,31 @@ void queue_artifact(const std::string& slug, std::vector<unsigned char> rgba, in
     artifact.dirty = true;
 }
 
+bool rgba_is_nearly_black(const std::vector<unsigned char>& rgba) {
+    if (rgba.size() < 4U) {
+        return true;
+    }
+
+    unsigned int max_channel = 0;
+    double total_luma = 0.0;
+    std::size_t sample_count = 0;
+    const std::size_t stride = 64U;
+    for (std::size_t offset = 0; offset + 3U < rgba.size(); offset += stride) {
+        const unsigned int red = rgba[offset];
+        const unsigned int green = rgba[offset + 1U];
+        const unsigned int blue = rgba[offset + 2U];
+        max_channel = std::max({max_channel, red, green, blue});
+        total_luma += static_cast<double>(red + green + blue) / 3.0;
+        ++sample_count;
+    }
+
+    if (sample_count == 0U) {
+        return true;
+    }
+    const double average_luma = total_luma / static_cast<double>(sample_count);
+    return max_channel <= 8U && average_luma <= 1.5;
+}
+
 bool read_current_viewport_rgba(std::vector<unsigned char>& rgba, int& width, int& height) {
     GLint viewport[4] = {};
     glGetIntegerv(GL_VIEWPORT, viewport);
@@ -236,6 +275,9 @@ void capture_device(DeviceSpec& device) {
     int width = 0;
     int height = 0;
     if (!read_current_viewport_rgba(rgba, width, height)) {
+        return;
+    }
+    if (rgba_is_nearly_black(rgba)) {
         return;
     }
 
