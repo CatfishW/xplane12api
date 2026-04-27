@@ -11,6 +11,7 @@ REPO_ROOT="${REPO_ROOT:-/home/your-user/Development}"
 XPLANE_HOME="${XPLANE_HOME:-/home/your-user/X-Plane 12}"
 XPLANE_BIN="${XPLANE_BIN:-${XPLANE_HOME}/X-Plane-x86_64}"
 XPLANE_ARGS="${XPLANE_ARGS:-}"
+PYTHON_BIN="${PYTHON_BIN:-/usr/bin/python3}"
 STEAM_BIN="${STEAM_BIN:-${HOME}/.steam/debian-installation/steam.sh}"
 STEAM_ARGS="${STEAM_ARGS:--silent}"
 STEAM_BOOTSTRAP_TIMEOUT_SECONDS="${STEAM_BOOTSTRAP_TIMEOUT_SECONDS:-20}"
@@ -90,6 +91,17 @@ maybe_start_steam_client() {
 }
 
 maybe_start_steam_client
+
+maybe_start_safe_mode_watchdog() {
+    local watchdog_script="${REPO_ROOT}/xplane12/host/bin/xplane12_safe_mode_watchdog.py"
+    if [[ -z "${DISPLAY:-}" || -z "${XAUTHORITY:-}" ]]; then
+        return
+    fi
+    if [[ ! -x "${PYTHON_BIN}" || ! -f "${watchdog_script}" ]]; then
+        return
+    fi
+    "${PYTHON_BIN}" "${watchdog_script}" >/tmp/xplane12-safe-mode-watchdog.log 2>&1 &
+}
 
 list_xplane_pids() {
     local pid=""
@@ -177,6 +189,7 @@ if [[ "${XPLANE_BIN}" == "/usr/games/steam" ]]; then
         exit $?
     fi
 
+    maybe_start_safe_mode_watchdog
     echo "[xplane12_launch] tracking pid ${xplane_pid}" >&2
     while kill -0 "${xplane_pid}" >/dev/null 2>&1; do
         sleep 5
@@ -191,4 +204,5 @@ if wait_for_existing_xplane; then
     exit 0
 fi
 wait_for_webapi_port 8086 30
+maybe_start_safe_mode_watchdog
 exec "${XPLANE_BIN}" "${EXTRA_ARGS[@]}"

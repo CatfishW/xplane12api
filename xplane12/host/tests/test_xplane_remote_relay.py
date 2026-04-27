@@ -82,7 +82,18 @@ class XPlaneRemoteRelayTests(unittest.TestCase):
             "sim/flightmodel/position/true_airspeed": 166.0,
             "sim/flightmodel/position/groundspeed": 80.0,
             "sim/flightmodel/position/vh_ind": 2.0,
+            "sim/cockpit/autopilot/autopilot_mode": 2.0,
+            "sim/cockpit/autopilot/autopilot_state": 162.0,
             "sim/cockpit2/autopilot/autopilot_mode": 2.0,
+            "sim/cockpit2/autopilot/servos_on": 1.0,
+            "sim/cockpit2/autopilot/flight_director_mode": 2.0,
+            "sim/cockpit2/autopilot/flight_director_master_pilot": 1.0,
+            "sim/cockpit2/autopilot/heading_status": 2.0,
+            "sim/cockpit2/autopilot/heading_hold_status": 0.0,
+            "sim/cockpit2/autopilot/altitude_hold_status": 2.0,
+            "sim/cockpit2/autopilot/altitude_mode": 6.0,
+            "sim/cockpit2/autopilot/autothrottle_on": 0.0,
+            "sim/cockpit2/autopilot/autothrottle_arm": 0.0,
             "sim/cockpit2/gauges/indicators/gps_status": 1.0,
             "sim/cockpit2/radios/nav1_has_glideslope": 0.0,
             "sim/cockpit/switches/gear_handle_status": 0.0,
@@ -112,6 +123,7 @@ class XPlaneRemoteRelayTests(unittest.TestCase):
         self.assertIsNotNone(snapshot.weather)
         self.assertIn("sim/flightmodel/position/latitude", snapshot.raw)
         self.assertEqual("observe", snapshot.automation.mode)
+        self.assertTrue(snapshot.ownship.autopilot_engaged)
         self.assertEqual(1, len(snapshot.traffic))
         self.assertEqual("ABCDEF", snapshot.traffic[0].icao24)
 
@@ -198,6 +210,79 @@ class XPlaneRemoteRelayTests(unittest.TestCase):
         written_datarefs = [call.args[0] for call in set_dataref_mock.call_args_list]
         self.assertIn("sim/cockpit2/EFIS/EFIS_tcas_on", written_datarefs)
         self.assertIn("sim/cockpit2/autopilot/altitude_dial_ft", written_datarefs)
+
+    def test_webapi_hold_controller_avoids_manual_yoke_when_servos_are_on(self):
+        source = MODULE.MockFlightSource(12000.0, 240.0, 90.0, 1)
+        snapshot = source.next_snapshot()
+        snapshot.ownship.altitude_m = 12000.0 * 0.3048
+        snapshot.ownship.altitude_agl_m = 1500.0
+        snapshot.ownship.autopilot_engaged = True
+        snapshot.raw["sim/cockpit2/autopilot/servos_on"] = 1.0
+        snapshot.raw["sim/cockpit/autopilot/autopilot_state"] = 162.0
+        snapshot.raw["sim/cockpit2/autopilot/heading_status"] = 2.0
+        snapshot.raw["sim/cockpit2/autopilot/altitude_hold_status"] = 2.0
+        snapshot.raw["sim/cockpit2/autopilot/altitude_mode"] = 6.0
+
+        controller = MODULE.WebApiHoldController(
+            base_url="http://127.0.0.1:8086/api/v3",
+            aircraft_path="Aircraft/Laminar Research/Cessna Citation X/Cessna_CitationX.acf",
+            target_altitude_ft=12000.0,
+            target_heading_deg=90.0,
+            target_speed_kt=240.0,
+        )
+
+        with mock.patch.object(MODULE.time, "monotonic", return_value=100.0), mock.patch.object(
+            MODULE, "activate_command"
+        ), mock.patch.object(MODULE, "set_dataref") as set_dataref_mock:
+            state = controller.observe(snapshot)
+
+        self.assertIn(state.mode, {"hold", "assist"})
+        yoke_writes = [
+            (call.args[0], call.args[1])
+            for call in set_dataref_mock.call_args_list
+            if call.args[0].startswith("sim/joystick/yoke_")
+        ]
+        self.assertTrue(yoke_writes)
+        self.assertTrue(all(value == 0.0 for _, value in yoke_writes))
+
+    def test_webapi_hold_controller_uses_vertical_speed_for_large_altitude_error(self):
+        source = MODULE.MockFlightSource(12000.0, 240.0, 90.0, 1)
+        snapshot = source.next_snapshot()
+        snapshot.ownship.altitude_m = 13500.0 * 0.3048
+        snapshot.ownship.altitude_agl_m = 1500.0
+        snapshot.ownship.autopilot_engaged = True
+        snapshot.ownship.vertical_speed_fpm = 0.0
+        snapshot.raw["sim/cockpit2/autopilot/servos_on"] = 1.0
+        snapshot.raw["sim/cockpit/autopilot/autopilot_state"] = 162.0
+        snapshot.raw["sim/cockpit2/autopilot/heading_status"] = 2.0
+        snapshot.raw["sim/cockpit2/autopilot/altitude_hold_status"] = 1.0
+        snapshot.raw["sim/cockpit2/autopilot/altitude_mode"] = 3.0
+
+        controller = MODULE.WebApiHoldController(
+            base_url="http://127.0.0.1:8086/api/v3",
+            aircraft_path="Aircraft/Laminar Research/Cessna Citation X/Cessna_CitationX.acf",
+            target_altitude_ft=12000.0,
+            target_heading_deg=90.0,
+            target_speed_kt=240.0,
+        )
+
+        with mock.patch.object(MODULE.time, "monotonic", return_value=100.0), mock.patch.object(
+            MODULE, "activate_command"
+        ) as activate_mock, mock.patch.object(MODULE, "set_dataref") as set_dataref_mock:
+            state = controller.observe(snapshot)
+
+        self.assertEqual("rearm", state.mode)
+        activated_commands = [call.args[0] for call in activate_mock.call_args_list]
+        self.assertIn("sim/autopilot/vertical_speed", activated_commands)
+        self.assertIn("sim/autopilot/altitude_arm", activated_commands)
+        self.assertNotIn("sim/autopilot/altitude_hold", activated_commands)
+        vvi_writes = [
+            call.args[1]
+            for call in set_dataref_mock.call_args_list
+            if call.args[0] == "sim/cockpit2/autopilot/vvi_dial_fpm"
+        ]
+        self.assertEqual(1, len(vvi_writes))
+        self.assertLess(vvi_writes[0], 0.0)
 
     def test_run_replaces_snapshot_automation_with_hold_controller_output(self):
         snapshot = MODULE.MockFlightSource(12000.0, 240.0, 90.0, 1).next_snapshot()

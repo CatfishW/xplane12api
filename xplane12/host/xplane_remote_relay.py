@@ -50,6 +50,15 @@ def heading_delta(target: float, current: float) -> float:
     return delta
 
 
+AP_STATE_HEADING_SELECT = 2
+AP_STATE_ROLL_HOLD = 4
+AP_STATE_VERTICAL_SPEED = 16
+AP_STATE_ALTITUDE_ARM = 32
+AP_STATE_PITCH_HOLD = 128
+AP_STATE_ALTITUDE_HOLD = 16384
+AP_STATE_HEADING_HOLD = 1048576
+
+
 def offset_lat_lon(
     latitude: float, longitude: float, bearing_deg: float, distance_m: float
 ) -> Tuple[float, float]:
@@ -270,6 +279,7 @@ class WebApiHoldController:
         self._last_target_sync_at = 0.0
         self._last_mode_arm_at = 0.0
         self._last_manual_trim_at = 0.0
+        self._last_throttle_assist_at = 0.0
         self._last_log_at = 0.0
 
     def observe(self, snapshot: TelemetrySnapshot) -> AutomationState:
@@ -291,33 +301,57 @@ class WebApiHoldController:
 
         ownship = snapshot.ownship
         altitude_error_ft = (self._target_altitude_m - ownship.altitude_m) * 3.28084
-        slow_flight = ownship.ground_speed_kt < max(110.0, self._target_speed_kt * 0.6)
-        unstable_attitude = abs(ownship.roll_deg) >= 20.0 or abs(ownship.pitch_deg) >= 10.0
-        far_from_target_altitude = abs(altitude_error_ft) >= 1400.0
-        needs_rearm = (
-            not ownship.autopilot_engaged
-            or slow_flight
-            or unstable_attitude
-            or far_from_target_altitude
+        autopilot_state = self._read_raw_int(
+            snapshot, "sim/cockpit/autopilot/autopilot_state"
         )
+        servos_on = self._read_raw(snapshot, "sim/cockpit2/autopilot/servos_on") > 0.5
+        autothrottle_on = (
+            self._read_raw(snapshot, "sim/cockpit2/autopilot/autothrottle_on") > 0.5
+        )
+        slow_flight = ownship.indicated_airspeed_kt < max(
+            150.0, self._target_speed_kt - 35.0
+        )
+        unstable_attitude = abs(ownship.roll_deg) >= 20.0 or abs(ownship.pitch_deg) >= 10.0
+        needs_lateral_rearm = not servos_on or not self._heading_mode_active(
+            snapshot, autopilot_state
+        )
+        needs_vertical_rearm = unstable_attitude or self._vertical_mode_mismatch(
+            snapshot, autopilot_state, altitude_error_ft
+        )
+        needs_rearm = needs_lateral_rearm or needs_vertical_rearm
 
         mode = "hold"
         recovery_active = False
         if needs_rearm and now - self._last_mode_arm_at >= 6.0:
-            self._engage_hold_modes(unstable_attitude=unstable_attitude)
+            self._engage_hold_modes(
+                snapshot,
+                altitude_error_ft=altitude_error_ft,
+                unstable_attitude=unstable_attitude,
+            )
             self._last_mode_arm_at = now
             mode = "rearm"
             recovery_active = True
 
-        if (needs_rearm or ownship.ground_speed_kt < self._target_speed_kt - 25.0) and now - self._last_manual_trim_at >= 0.6:
+        if not servos_on and now - self._last_manual_trim_at >= 0.6:
             self._apply_direct_trim(snapshot)
             self._last_manual_trim_at = now
             recovery_active = True
             if mode == "hold":
                 mode = "assist"
-        elif ownship.autopilot_engaged and now - self._last_manual_trim_at >= 4.0:
+        elif servos_on and now - self._last_manual_trim_at >= 2.0:
             self._neutralize_manual_inputs()
             self._last_manual_trim_at = now
+
+        if (
+            not autothrottle_on
+            and (slow_flight or abs(self._target_speed_kt - ownship.indicated_airspeed_kt) >= 4.0)
+            and now - self._last_throttle_assist_at >= 0.8
+        ):
+            self._apply_throttle_assist(snapshot)
+            self._last_throttle_assist_at = now
+            recovery_active = True
+            if mode == "hold":
+                mode = "assist"
 
         return AutomationState(
             controller="webapi-fixed-wing-hold",
@@ -383,51 +417,75 @@ class WebApiHoldController:
             ("sim/cockpit/autopilot/heading_mag2", self._target_heading_deg),
             ("sim/cockpit/autopilot/altitude", self._target_altitude_ft),
             ("sim/cockpit/autopilot/airspeed", self._target_speed_kt),
-            ("sim/cockpit/autopilot/vertical_velocity", 0.0),
             ("sim/cockpit2/autopilot/heading_dial_deg_mag_pilot", self._target_heading_deg),
             ("sim/cockpit2/autopilot/heading_dial_deg_mag_copilot", self._target_heading_deg),
             ("sim/cockpit2/autopilot/altitude_dial_ft", self._target_altitude_ft),
             ("sim/cockpit2/autopilot/airspeed_dial_kts", self._target_speed_kt),
             ("sim/cockpit2/autopilot/airspeed_dial_kts_mach", self._target_speed_kt),
-            ("sim/cockpit2/autopilot/vvi_dial_fpm", 0.0),
         ):
             self._try_set_dataref(dataref_name, value)
         self._last_target_sync_at = now
 
-    def _engage_hold_modes(self, *, unstable_attitude: bool) -> None:
+    def _engage_hold_modes(
+        self,
+        snapshot: TelemetrySnapshot,
+        *,
+        altitude_error_ft: float,
+        unstable_attitude: bool,
+    ) -> None:
         if unstable_attitude:
             self._try_activate("sim/autopilot/return_to_level")
         for command_name in (
             "sim/autopilot/fdir_on",
             "sim/autopilot/servos_on",
             "sim/autopilot/heading",
-            "sim/autopilot/altitude_hold",
-            "sim/autopilot/autothrottle_on",
         ):
             self._try_activate(command_name)
+        if self._read_raw(snapshot, "sim/cockpit2/autopilot/autothrottle_arm") > 0.5:
+            self._try_activate("sim/autopilot/autothrottle_on")
+
+        vertical_speed_fpm = snapshot.ownship.vertical_speed_fpm
+        if abs(altitude_error_ft) <= 250.0 and abs(vertical_speed_fpm) <= 600.0:
+            self._try_activate("sim/autopilot/altitude_hold")
+            return
+
+        target_vvi_fpm = clamp(altitude_error_ft * 1.4, -1800.0, 1800.0)
+        if abs(target_vvi_fpm) < 500.0:
+            target_vvi_fpm = 500.0 if target_vvi_fpm >= 0.0 else -500.0
+        self._try_activate("sim/autopilot/vertical_speed")
+        for dataref_name in (
+            "sim/cockpit/autopilot/vertical_velocity",
+            "sim/cockpit2/autopilot/vvi_dial_fpm",
+        ):
+            self._try_set_dataref(dataref_name, target_vvi_fpm)
+        self._try_activate("sim/autopilot/altitude_arm")
 
     def _apply_direct_trim(self, snapshot: TelemetrySnapshot) -> None:
         ownship = snapshot.ownship
         pitch_cmd = clamp(
             ((self._target_altitude_m - ownship.altitude_m) * 3.28084) / 4500.0
             - ownship.vertical_speed_fpm / 3200.0,
-            -0.18,
-            0.18,
+            -0.12,
+            0.12,
         )
         roll_cmd = clamp(
             heading_delta(self._target_heading_deg, ownship.heading_deg) / 70.0
             - ownship.roll_deg / 55.0,
-            -0.22,
-            0.22,
-        )
-        throttle_cmd = clamp(
-            0.58 + (self._target_speed_kt - ownship.ground_speed_kt) / 170.0,
-            0.34,
-            0.92,
+            -0.15,
+            0.15,
         )
         self._try_set_dataref("sim/joystick/yoke_pitch_ratio", pitch_cmd)
         self._try_set_dataref("sim/joystick/yoke_roll_ratio", roll_cmd)
         self._try_set_dataref("sim/joystick/yoke_heading_ratio", 0.0)
+        self._apply_throttle_assist(snapshot)
+
+    def _apply_throttle_assist(self, snapshot: TelemetrySnapshot) -> None:
+        ownship = snapshot.ownship
+        throttle_cmd = clamp(
+            0.56 + (self._target_speed_kt - ownship.indicated_airspeed_kt) / 135.0,
+            0.32,
+            0.9,
+        )
         self._try_set_dataref("sim/cockpit2/engine/actuators/throttle_ratio_all", throttle_cmd)
 
     def _neutralize_manual_inputs(self) -> None:
@@ -456,6 +514,48 @@ class WebApiHoldController:
             return
         self._last_log_at = now
         print(f"[xplane_remote_relay] {message}", flush=True)
+
+    @staticmethod
+    def _read_raw(snapshot: TelemetrySnapshot, dataref_name: str, default: float = 0.0) -> float:
+        value = snapshot.raw.get(dataref_name, default)
+        return float(value) if math.isfinite(value) else default
+
+    @classmethod
+    def _read_raw_int(
+        cls, snapshot: TelemetrySnapshot, dataref_name: str, default: int = 0
+    ) -> int:
+        return int(round(cls._read_raw(snapshot, dataref_name, float(default))))
+
+    def _heading_mode_active(
+        self, snapshot: TelemetrySnapshot, autopilot_state: int
+    ) -> bool:
+        if autopilot_state & (AP_STATE_HEADING_SELECT | AP_STATE_HEADING_HOLD):
+            return True
+        heading_status = self._read_raw_int(
+            snapshot, "sim/cockpit2/autopilot/heading_status"
+        )
+        heading_hold_status = self._read_raw_int(
+            snapshot, "sim/cockpit2/autopilot/heading_hold_status"
+        )
+        return heading_status >= 2 or heading_hold_status >= 2
+
+    def _vertical_mode_mismatch(
+        self,
+        snapshot: TelemetrySnapshot,
+        autopilot_state: int,
+        altitude_error_ft: float,
+    ) -> bool:
+        altitude_hold_status = self._read_raw_int(
+            snapshot, "sim/cockpit2/autopilot/altitude_hold_status"
+        )
+        altitude_mode = self._read_raw_int(snapshot, "sim/cockpit2/autopilot/altitude_mode")
+        altitude_hold_active = bool(autopilot_state & AP_STATE_ALTITUDE_HOLD) or altitude_hold_status >= 2
+        altitude_capture_armed = bool(autopilot_state & AP_STATE_ALTITUDE_ARM) or altitude_hold_status == 1
+        vertical_speed_active = bool(autopilot_state & AP_STATE_VERTICAL_SPEED) or altitude_mode == 4
+
+        if abs(altitude_error_ft) <= 250.0:
+            return not altitude_hold_active
+        return not (altitude_capture_armed and vertical_speed_active)
 
 
 class FlightSource(Protocol):
@@ -923,7 +1023,18 @@ class RrefFlightSource:
         "sim/flightmodel/position/true_airspeed",
         "sim/flightmodel/position/groundspeed",
         "sim/flightmodel/position/vh_ind",
+        "sim/cockpit/autopilot/autopilot_mode",
+        "sim/cockpit/autopilot/autopilot_state",
         "sim/cockpit2/autopilot/autopilot_mode",
+        "sim/cockpit2/autopilot/servos_on",
+        "sim/cockpit2/autopilot/flight_director_mode",
+        "sim/cockpit2/autopilot/flight_director_master_pilot",
+        "sim/cockpit2/autopilot/heading_status",
+        "sim/cockpit2/autopilot/heading_hold_status",
+        "sim/cockpit2/autopilot/altitude_hold_status",
+        "sim/cockpit2/autopilot/altitude_mode",
+        "sim/cockpit2/autopilot/autothrottle_on",
+        "sim/cockpit2/autopilot/autothrottle_arm",
         "sim/cockpit2/gauges/indicators/gps_status",
         "sim/cockpit2/radios/nav1_has_glideslope",
         "sim/cockpit/switches/gear_handle_status",
@@ -1077,7 +1188,16 @@ class RrefFlightSource:
         heading_deg = normalize_heading(read("sim/flightmodel/position/psi"))
         ground_speed_kt = read("sim/flightmodel/position/groundspeed") * 1.94384
         vertical_speed_fpm = read("sim/flightmodel/position/vh_ind") * 196.8504
-        autopilot_mode = int(round(read("sim/cockpit2/autopilot/autopilot_mode")))
+        autopilot_mode = int(
+            round(
+                read(
+                    "sim/cockpit/autopilot/autopilot_mode",
+                    read("sim/cockpit2/autopilot/autopilot_mode"),
+                )
+            )
+        )
+        servos_on = read("sim/cockpit2/autopilot/servos_on") > 0.5
+        flight_director_mode = int(round(read("sim/cockpit2/autopilot/flight_director_mode")))
 
         weather_cloud_base = read("sim/weather/cloud_base_msl_m[0]")
         if weather_cloud_base <= 0.0:
@@ -1098,7 +1218,7 @@ class RrefFlightSource:
             true_airspeed_kt=read("sim/flightmodel/position/true_airspeed"),
             ground_speed_kt=ground_speed_kt,
             vertical_speed_fpm=vertical_speed_fpm,
-            autopilot_engaged=autopilot_mode >= 2,
+            autopilot_engaged=servos_on or flight_director_mode >= 2 or autopilot_mode >= 2,
             autopilot_mode=autopilot_mode,
             gear_down=read("sim/cockpit/switches/gear_handle_status") > 0.5,
             on_ground=altitude_agl_m < 3.0,
