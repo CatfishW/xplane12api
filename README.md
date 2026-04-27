@@ -29,6 +29,7 @@ On the remote host, the deployment examples assume wrapper scripts live in the t
   - opens the TCP/UDP bridge and reverse tunnel for port 49013.
 
 The systemd units in `xplane12/host/systemd/` call those wrappers. They are example units and should be edited to match your actual username/home path before installation.
+The same directory also contains `xplane12-restart.service` and `xplane12-restart.timer`, which recycle the runtime stack every 3 hours.
 
 ## Canonical local commands
 
@@ -47,6 +48,7 @@ Important settings:
 - `XPLANE_HOME`
 - `XPLANE_BIN`
 - `XPLANE_ARGS`
+- `XPLANE_AIRCRAFT_PATH`
 - `DISPLAY`
 - `XAUTHORITY`
 - `XDG_RUNTIME_DIR`
@@ -66,7 +68,9 @@ What this does:
 - copies wrapper scripts to the target host home directory
 - copies service files to the target host home directory and installs them into `/etc/systemd/system/`
 - copies the `xplane12` Python tree to `${REMOTE_HOME}/Development/xplane12` by default
+- builds and installs the `XPlane12ImageBridge` plugin to `Resources/plugins/XPlane12ImageBridge/64/lin.xpl`
 - enables and starts all host services
+- enables `xplane12-restart.timer` so the full XP12 stack is restarted every 3 hours
 - runs the remote diagnostic script by default
 
 If you want install without the final diagnostic pass:
@@ -130,6 +134,10 @@ After install/restart, these services should be active:
 - `xplane12-data-api.service`
 - `xplane12-tunnel.service`
 - `xplane-49013-tunnel.service`
+
+The restart timer should also be active:
+
+- `xplane12-restart.timer`
 
 Expected healthy checks:
 
@@ -196,6 +204,21 @@ curl http://127.0.0.1:12678/v1/traffic
 curl http://127.0.0.1:12678/v1/autopilot
 curl http://127.0.0.1:12678/v1/capabilities
 ```
+
+#### Built-in radar-style display routes
+
+```bash
+open http://127.0.0.1:12678/ui/radar
+curl http://127.0.0.1:12678/v1/render/weather.svg
+curl "http://127.0.0.1:12678/v1/render/traffic.svg?range_nm=40"
+```
+
+Notes:
+
+- `/ui/radar` serves a lightweight browser dashboard that refreshes the live weather and traffic displays from the local snapshot API.
+- `/v1/render/traffic.svg` is a geometry-driven ND/TCAS-style render from the canonical `traffic` snapshot.
+- `/v1/render/weather.svg` is a radar-style visualization synthesized from the available aircraft weather and cloud-layer data in the snapshot. It is **not** a direct capture of X-Plane's stock avionics weather-radar texture.
+- If you need the real X-Plane 12.3+ weather-radar texture for plugin-driven avionics, use Laminar's documented plugin texture path instead of this repo's Web API bridge.
 
 #### Raw category values
 

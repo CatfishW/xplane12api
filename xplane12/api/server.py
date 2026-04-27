@@ -8,6 +8,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any, ClassVar
 from urllib.parse import parse_qs, urlparse
 
+from xplane12.api.plugin_artifacts import ArtifactUnavailable, PluginArtifactStore
+from xplane12.api.rendering import render_dashboard_html, render_traffic_svg, render_weather_svg
 from xplane12.bridge import SnapshotAdapter, XPlaneWebApiClient, create_runtime
 from xplane12.compat import Subscription
 from xplane12.stream import NdjsonBroadcastServer
@@ -16,14 +18,21 @@ from xplane12.stream import NdjsonBroadcastServer
 class ApiHandler(BaseHTTPRequestHandler):
     adapter: ClassVar[SnapshotAdapter | None] = None
     subscriptions: ClassVar[list[Subscription]] = []
+    artifacts: ClassVar[PluginArtifactStore | None] = None
 
     def _write_json(self, status: int, body: dict[str, Any]) -> None:
         payload = json.dumps(body, ensure_ascii=False).encode("utf-8")
+        self._write_bytes(status, payload, content_type="application/json")
+
+    def _write_text(self, status: int, body: str, content_type: str) -> None:
+        self._write_bytes(status, body.encode("utf-8"), content_type=content_type)
+
+    def _write_bytes(self, status: int, body: bytes, *, content_type: str) -> None:
         self.send_response(status)
-        self.send_header("Content-Type", "application/json")
-        self.send_header("Content-Length", str(len(payload)))
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        _ = self.wfile.write(payload)
+        _ = self.wfile.write(body)
 
     def do_GET(self) -> None:
         adapter = ApiHandler.adapter
@@ -73,6 +82,9 @@ class ApiHandler(BaseHTTPRequestHandler):
 
         snapshot = adapter.canonical_snapshot()
         payload = snapshot.to_dict()
+        if path in ("/", "/ui/radar", "/ui/displays"):
+            self._write_text(200, render_dashboard_html(), "text/html; charset=utf-8")
+            return
         if path == "/v1/snapshot":
             self._write_json(200, payload)
             return
@@ -82,8 +94,74 @@ class ApiHandler(BaseHTTPRequestHandler):
         if path == "/v1/weather":
             self._write_json(200, payload["weather"])
             return
+        if path == "/v1/render/weather.png":
+            artifacts = ApiHandler.artifacts
+            if artifacts is None:
+                self._write_json(503, {"error": "artifact_store_unavailable"})
+                return
+            try:
+                self._write_bytes(200, artifacts.render_png("weather"), content_type="image/png")
+            except ArtifactUnavailable as error:
+                self._write_json(503, {"error": str(error)})
+            return
+        if path == "/v1/render/weather.svg":
+            self._write_text(200, render_weather_svg(snapshot), "image/svg+xml; charset=utf-8")
+            return
         if path == "/v1/traffic":
             self._write_json(200, {"traffic": payload["traffic"]})
+            return
+        if path == "/v1/render/traffic.png":
+            artifacts = ApiHandler.artifacts
+            if artifacts is None:
+                self._write_json(503, {"error": "artifact_store_unavailable"})
+                return
+            try:
+                self._write_bytes(200, artifacts.render_png("traffic"), content_type="image/png")
+            except ArtifactUnavailable as error:
+                self._write_json(503, {"error": str(error)})
+            return
+        if path == "/v1/render/traffic.svg":
+            max_range_nm = 40.0
+            requested_range = qs.get("range_nm", [None])[0]
+            if requested_range is not None:
+                try:
+                    max_range_nm = float(requested_range)
+                except ValueError:
+                    max_range_nm = 40.0
+            max_range_nm = max(5.0, min(max_range_nm, 120.0))
+            self._write_text(
+                200,
+                render_traffic_svg(snapshot, max_range_nm=max_range_nm),
+                "image/svg+xml; charset=utf-8",
+            )
+            return
+        if path == "/v1/render/gauges.json":
+            artifacts = ApiHandler.artifacts
+            if artifacts is None:
+                self._write_json(503, {"error": "artifact_store_unavailable"})
+                return
+            self._write_json(200, artifacts.artifact_manifest())
+            return
+        if path.startswith("/v1/render/gauges/") and path.endswith(".png"):
+            artifacts = ApiHandler.artifacts
+            if artifacts is None:
+                self._write_json(503, {"error": "artifact_store_unavailable"})
+                return
+            slug = path.removeprefix("/v1/render/gauges/").removesuffix(".png")
+            try:
+                self._write_bytes(200, artifacts.render_png(slug), content_type="image/png")
+            except ArtifactUnavailable as error:
+                self._write_json(503, {"error": str(error)})
+            return
+        if path == "/v1/render/gauges.png":
+            artifacts = ApiHandler.artifacts
+            if artifacts is None:
+                self._write_json(503, {"error": "artifact_store_unavailable"})
+                return
+            try:
+                self._write_bytes(200, artifacts.render_png("gauges"), content_type="image/png")
+            except ArtifactUnavailable as error:
+                self._write_json(503, {"error": str(error)})
             return
         if path == "/v1/autopilot":
             self._write_json(200, payload.get("automation") or {})
@@ -145,17 +223,16 @@ def run_server(
 
     ApiHandler.adapter = adapter
     ApiHandler.subscriptions = subscriptions
+    ApiHandler.artifacts = PluginArtifactStore()
 
     server = ApiServer((bind_host, bind_port), ApiHandler)
     stream_server = NdjsonBroadcastServer(stream_host, stream_port)
     broadcaster = SnapshotBroadcaster(adapter, stream_server)
     broadcaster.start()
     stop_event = threading.Event()
+    shutdown_thread: threading.Thread | None = None
 
-    def stop(_sig: int, _frame: object) -> None:
-        if stop_event.is_set():
-            return
-        stop_event.set()
+    def shutdown_components() -> None:
         broadcaster.stop()
         try:
             server.shutdown()
@@ -167,12 +244,22 @@ def run_server(
             pass
         client.stop()
 
+    def stop(_sig: int, _frame: object) -> None:
+        nonlocal shutdown_thread
+        if stop_event.is_set():
+            return
+        stop_event.set()
+        shutdown_thread = threading.Thread(target=shutdown_components, name="XPlaneApiShutdown", daemon=True)
+        shutdown_thread.start()
+
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
 
     try:
         server.serve_forever(poll_interval=0.5)
     finally:
+        if shutdown_thread is not None and shutdown_thread.is_alive():
+            shutdown_thread.join(timeout=5.0)
         broadcaster.stop()
         stream_server.close()
         client.stop()

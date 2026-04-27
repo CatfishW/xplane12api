@@ -19,13 +19,18 @@ SERVICE_NAMES=(
     xplane-49013-tunnel.service
 )
 
+TIMER_NAMES=(
+    xplane12-restart.timer
+)
+
 remote_args=()
 for arg in "$@"; do
     remote_args+=("$(printf '%q' "${arg}")")
 done
 
 services_joined="${SERVICE_NAMES[*]}"
-remote_cmd="sudo systemctl restart ${services_joined} && sudo systemctl --no-pager --full status ${services_joined} && ${REMOTE_HOME}/xplane12_diag.sh"
+timers_joined="${TIMER_NAMES[*]}"
+remote_cmd="sudo systemctl enable --now ${timers_joined} && sudo systemctl restart ${services_joined} && sudo systemctl --no-pager --full status ${services_joined} && ${REMOTE_HOME}/xplane12_diag.sh"
 if [[ ${#remote_args[@]} -gt 0 ]]; then
     remote_cmd+=" ${remote_args[*]}"
 fi

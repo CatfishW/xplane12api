@@ -43,6 +43,19 @@ class OwnshipState:
     parking_brake_ratio: float = 0.0
 
 
+WEATHER_LAYER_COUNT = 3
+
+
+@dataclass
+class CloudLayer:
+    coverage_percent: float = 0.0
+    base_msl_m: float = 0.0
+    tops_msl_m: float = 0.0
+    cloud_type: int = 0
+    precipitation_ratio: float = 0.0
+    turbulence_ratio: float = 0.0
+
+
 @dataclass
 class WeatherState:
     wind_speed_kt: float = 0.0
@@ -51,6 +64,8 @@ class WeatherState:
     temperature_c: float = 15.0
     visibility_m: float = 0.0
     cloud_base_m: float = 0.0
+    precipitation_on_aircraft_ratio: float = 0.0
+    cloud_layers: list[CloudLayer] = field(default_factory=lambda: [CloudLayer() for _ in range(WEATHER_LAYER_COUNT)])
 
 
 @dataclass
@@ -69,6 +84,8 @@ class TrafficTarget:
     bearing_deg: float | None = None
     age_seconds: float | None = None
     confidence: float | None = None
+    relative_altitude_ft: float | None = None
+    flight_level: str | None = None
 
 
 @dataclass

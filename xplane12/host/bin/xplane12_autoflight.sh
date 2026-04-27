@@ -25,6 +25,7 @@ RREF_LISTEN_PORT="${RREF_LISTEN_PORT:-49004}"
 RREF_FREQUENCY_HZ="${RREF_FREQUENCY_HZ:-10}"
 RREF_SAMPLE_TIMEOUT_SECONDS="${RREF_SAMPLE_TIMEOUT_SECONDS:-1.25}"
 TRAFFIC_SLOTS="${TRAFFIC_SLOTS:-5}"
+XPLANE_AIRCRAFT_PATH="${XPLANE_AIRCRAFT_PATH:-}"
 AUTOFLIGHT_EXTRA_ARGS="${AUTOFLIGHT_EXTRA_ARGS:-}"
 
 SCRIPT_PATH="${REPO_ROOT}/xplane12/host/xplane12_web_autoflight.py"
@@ -34,6 +35,10 @@ if [[ ! -f "${SCRIPT_PATH}" ]]; then
 fi
 
 read -r -a EXTRA_ARGS <<< "${AUTOFLIGHT_EXTRA_ARGS}"
+AIRCRAFT_ARGS=()
+if [[ -n "${XPLANE_AIRCRAFT_PATH}" ]]; then
+    AIRCRAFT_ARGS=(--aircraft-path "${XPLANE_AIRCRAFT_PATH}")
+fi
 export PYTHONUNBUFFERED=1
 exec "${PYTHON_BIN}" "${SCRIPT_PATH}" \
     --api-base-url "${API_BASE_URL}" \
@@ -52,4 +57,5 @@ exec "${PYTHON_BIN}" "${SCRIPT_PATH}" \
     --rref-frequency-hz "${RREF_FREQUENCY_HZ}" \
     --rref-sample-timeout-seconds "${RREF_SAMPLE_TIMEOUT_SECONDS}" \
     --traffic-slots "${TRAFFIC_SLOTS}" \
+    "${AIRCRAFT_ARGS[@]}" \
     "${EXTRA_ARGS[@]}"

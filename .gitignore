@@ -9,3 +9,5 @@ __pycache__/
 .venv/
 venv/
 .vscode/
+.runtime/
+xplane12/plugin/build/

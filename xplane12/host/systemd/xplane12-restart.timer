@@ -1,0 +1,12 @@
+[Unit]
+Description=Restart the X-Plane 12 runtime stack every 3 hours
+
+[Timer]
+Unit=xplane12-restart.service
+OnBootSec=3h
+OnUnitActiveSec=3h
+AccuracySec=1min
+Persistent=true
+
+[Install]
+WantedBy=timers.target

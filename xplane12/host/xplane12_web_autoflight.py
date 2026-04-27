@@ -106,6 +106,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--api-ready-timeout-seconds", type=float, default=API_READY_TIMEOUT_SECONDS)
     parser.add_argument("--xplane-command")
     parser.add_argument("--xplane-working-directory")
+    parser.add_argument("--aircraft-path")
     parser.add_argument("--skip-air-start", action="store_true")
     parser.add_argument("--mode", choices=("mock", "xpc", "rref", "auto"), default="rref")
     parser.add_argument("--listen-host", default="127.0.0.1")
@@ -149,7 +150,10 @@ def run(args: argparse.Namespace | None = None) -> None:
         )
 
         if not parsed.skip_air_start:
-            start_air_session_once(base_url=parsed.api_base_url)
+            air_start_kwargs = {"base_url": parsed.api_base_url}
+            if parsed.aircraft_path:
+                air_start_kwargs["aircraft_path"] = parsed.aircraft_path
+            start_air_session_once(**air_start_kwargs)
 
         xplane_remote_relay.run(build_relay_args(parsed))
     finally:

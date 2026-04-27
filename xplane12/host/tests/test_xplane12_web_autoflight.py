@@ -72,6 +72,8 @@ class XPlane12WebAutoflightTests(unittest.TestCase):
             [
                 "--api-base-url",
                 "http://127.0.0.1:8086/api/v3",
+                "--aircraft-path",
+                "Aircraft/Laminar Research/Sikorsky S-76/S-76C.acf",
                 "--xplane-command",
                 "/bin/echo start-xplane",
             ]
@@ -93,7 +95,10 @@ class XPlane12WebAutoflightTests(unittest.TestCase):
             timeout_seconds=args.api_ready_timeout_seconds,
             process=fake_process,
         )
-        air_start_mock.assert_called_once_with(base_url="http://127.0.0.1:8086/api/v3")
+        air_start_mock.assert_called_once_with(
+            base_url="http://127.0.0.1:8086/api/v3",
+            aircraft_path="Aircraft/Laminar Research/Sikorsky S-76/S-76C.acf",
+        )
         relay_run_mock.assert_called_once()
         stop_mock.assert_called_once_with(fake_process)
 
@@ -118,6 +123,19 @@ class XPlane12WebAutoflightTests(unittest.TestCase):
         air_start_mock.assert_not_called()
         relay_run_mock.assert_called_once()
         stop_mock.assert_not_called()
+
+    def test_run_uses_default_aircraft_when_no_aircraft_path_is_provided(self):
+        args = MODULE.build_arg_parser().parse_args([])
+        with mock.patch.object(MODULE, "api_is_ready", return_value=True), mock.patch.object(
+            MODULE, "wait_for_api_ready"
+        ) as wait_mock, mock.patch.object(MODULE, "start_air_session_once") as air_start_mock, mock.patch.object(
+            MODULE.xplane_remote_relay, "run"
+        ) as relay_run_mock:
+            MODULE.run(args)
+
+        wait_mock.assert_called_once()
+        air_start_mock.assert_called_once_with(base_url="http://127.0.0.1:8086/api/v3")
+        relay_run_mock.assert_called_once()
 
 
 if __name__ == "__main__":

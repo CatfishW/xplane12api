@@ -23,6 +23,9 @@ DEFAULT_SERVICES=(
     xplane12-tunnel.service
     xplane-49013-tunnel.service
 )
+DEFAULT_TIMERS=(
+    xplane12-restart.timer
+)
 SERVICES=("${DEFAULT_SERVICES[@]}")
 
 usage() {
@@ -82,6 +85,15 @@ for service in "${SERVICES[@]}"; do
     printf '%s active=' "${service}"
     sudo systemctl is-active "${service}" 2>/dev/null || true
 done
+
+section "timer status"
+for timer in "${DEFAULT_TIMERS[@]}"; do
+    printf '%s: enabled=' "${timer}"
+    sudo systemctl is-enabled "${timer}" 2>/dev/null || true
+    printf '%s active=' "${timer}"
+    sudo systemctl is-active "${timer}" 2>/dev/null || true
+done
+systemctl list-timers --all "${DEFAULT_TIMERS[@]}" || true
 
 section "health checks"
 curl -fsS --max-time 5 "http://${API_BIND_HOST}:${API_BIND_PORT}/health" || true

@@ -35,6 +35,7 @@ AIRCRAFT_REFS = [
 ]
 
 WEATHER_REFS = [
+    # Wind at aircraft
     "sim/weather/aircraft/wind_now_speed_msc",
     "sim/weather/aircraft/wind_now_direction_degt",
     "sim/weather/aircraft/wind_speed_kts[0]",
@@ -44,9 +45,36 @@ WEATHER_REFS = [
     "sim/weather/aircraft/barometer_current_pas",
     "sim/weather/aircraft/visibility_reported_sm",
     "sim/weather/aircraft/precipitation_on_aircraft_ratio",
+    # Cloud layer 0 (lowest)
     "sim/weather/aircraft/cloud_base_msl_m[0]",
     "sim/weather/aircraft/cloud_tops_msl_m[0]",
     "sim/weather/aircraft/cloud_coverage_percent[0]",
+    "sim/weather/aircraft/cloud_type[0]",
+    "sim/weather/aircraft/precipitation_ratio[0]",
+    "sim/weather/aircraft/turbulence_ratio[0]",
+    # Cloud layer 1
+    "sim/weather/aircraft/cloud_base_msl_m[1]",
+    "sim/weather/aircraft/cloud_tops_msl_m[1]",
+    "sim/weather/aircraft/cloud_coverage_percent[1]",
+    "sim/weather/aircraft/cloud_type[1]",
+    "sim/weather/aircraft/precipitation_ratio[1]",
+    "sim/weather/aircraft/turbulence_ratio[1]",
+    # Cloud layer 2
+    "sim/weather/aircraft/cloud_base_msl_m[2]",
+    "sim/weather/aircraft/cloud_tops_msl_m[2]",
+    "sim/weather/aircraft/cloud_coverage_percent[2]",
+    "sim/weather/aircraft/cloud_type[2]",
+    "sim/weather/aircraft/precipitation_ratio[2]",
+    "sim/weather/aircraft/turbulence_ratio[2]",
+    # Global weather
+    "sim/weather/wind_speed_kt[0]",
+    "sim/weather/wind_direction_degt[0]",
+    "sim/weather/barometer_sealevel_inhg",
+    "sim/weather/temperature_ambient_c",
+    "sim/weather/visibility_reported_m",
+    "sim/weather/cloud_base_msl_m[0]",
+    "sim/weather/cloud_tops_msl_m[0]",
+    "sim/weather/cloud_coverage_percent[0]",
 ]
 
 SYSTEM_REFS = [
@@ -90,6 +118,7 @@ TCAS_TEMPLATES = [
     "sim/cockpit2/tcas/targets/relative_distance_m[{slot}]",
     "sim/cockpit2/tcas/targets/relative_bearing_degt[{slot}]",
     "sim/cockpit2/tcas/targets/altitude_ft[{slot}]",
+    "sim/cockpit2/tcas/targets/vertical_speed_fpm[{slot}]",
     "sim/cockpit2/tcas/targets/position/lat[{slot}]",
     "sim/cockpit2/tcas/targets/position/lon[{slot}]",
     "sim/cockpit2/tcas/targets/position/ele[{slot}]",
@@ -98,6 +127,9 @@ TCAS_TEMPLATES = [
     "sim/cockpit2/tcas/targets/position/vz[{slot}]",
     "sim/cockpit2/tcas/targets/position/psi[{slot}]",
     "sim/cockpit2/tcas/targets/position/gear_deploy[{slot}]",
+    "sim/cockpit2/tcas/targets/flight_level[{slot}]",
+    "sim/cockpit2/tcas/targets/relative_altitude_ft[{slot}]",
+    "sim/cockpit2/tcas/targets/horizontal_velocity_mps[{slot}]",
 ]
 
 

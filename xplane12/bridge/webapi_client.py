@@ -15,11 +15,13 @@ from xplane12.compat import Subscription, build_subscriptions, category_members
 from xplane12.models import (
     AutomationState,
     CapabilityState,
+    CloudLayer,
     HealthState,
     OwnshipState,
     Snapshot,
     TrafficTarget,
     WeatherState,
+    WEATHER_LAYER_COUNT,
     utc_now_iso,
 )
 
@@ -90,6 +92,8 @@ class XPlaneWebApiClient:
         self.resolved_ids: dict[str, int] = {}
         self.unresolved_datarefs: set[str] = set()
         self.cooldown_until: float = 0.0
+        self._catalog_loaded = False
+        self._dataref_catalog: dict[str, int] = {}
 
     def start(self) -> None:
         if self.running:
@@ -132,6 +136,27 @@ class XPlaneWebApiClient:
                 return dataref, identifier
         return dataref, None
 
+    def _load_dataref_catalog(self) -> bool:
+        payload = self._request_json("/datarefs?limit=10000", timeout=20.0)
+        items = payload.get("data", []) if isinstance(payload, dict) else payload
+        if not isinstance(items, list):
+            return False
+
+        catalog: dict[str, int] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            name = item.get("name")
+            identifier = item.get("id")
+            if isinstance(name, str) and isinstance(identifier, int):
+                catalog[name] = identifier
+        if not catalog:
+            return False
+
+        self._dataref_catalog = catalog
+        self._catalog_loaded = True
+        return True
+
     def _coerce_numeric(self, value: Any) -> float | None:
         if isinstance(value, bool):
             return 1.0 if value else 0.0
@@ -155,6 +180,23 @@ class XPlaneWebApiClient:
             return
 
         first_error: str | None = None
+        if not self._catalog_loaded:
+            try:
+                self._load_dataref_catalog()
+            except Exception as error:
+                first_error = f"catalog_error:{type(error).__name__}:{error}"
+        if self._catalog_loaded:
+            for dataref in pending:
+                identifier = self._dataref_catalog.get(dataref)
+                if identifier is None:
+                    self.unresolved_datarefs.add(dataref)
+                    continue
+                self.resolved_ids[dataref] = identifier
+                self.unresolved_datarefs.discard(dataref)
+            if self.resolved_ids:
+                self.state.set_error(first_error or "")
+                return
+
         futures: dict[Future[tuple[str, int | None]], str] = {
             self.executor.submit(self._resolve_subscription, dataref): dataref for dataref in pending
         }
@@ -328,6 +370,17 @@ class SnapshotAdapter:
             autopilot_engaged=values.get("sim/cockpit/autopilot/autopilot_state", 0.0) > 0,
             autopilot_mode=int(values.get("sim/cockpit/autopilot/autopilot_mode", 0.0)),
         )
+        cloud_layers = [
+            CloudLayer(
+                coverage_percent=values.get(f"sim/weather/aircraft/cloud_coverage_percent[{i}]", 0.0),
+                base_msl_m=values.get(f"sim/weather/aircraft/cloud_base_msl_m[{i}]", 0.0),
+                tops_msl_m=values.get(f"sim/weather/aircraft/cloud_tops_msl_m[{i}]", 0.0),
+                cloud_type=int(values.get(f"sim/weather/aircraft/cloud_type[{i}]", 0.0)),
+                precipitation_ratio=values.get(f"sim/weather/aircraft/precipitation_ratio[{i}]", 0.0),
+                turbulence_ratio=values.get(f"sim/weather/aircraft/turbulence_ratio[{i}]", 0.0),
+            )
+            for i in range(WEATHER_LAYER_COUNT)
+        ]
         weather = WeatherState(
             wind_speed_kt=values.get("sim/weather/aircraft/wind_speed_kts[0]", 0.0),
             wind_direction_deg=values.get("sim/weather/aircraft/wind_direction_degt[0]", 0.0),
@@ -335,6 +388,8 @@ class SnapshotAdapter:
             temperature_c=values.get("sim/weather/aircraft/temperature_ambient_deg_c", 0.0),
             visibility_m=values.get("sim/weather/aircraft/visibility_reported_sm", 0.0) * 1609.344,
             cloud_base_m=values.get("sim/weather/aircraft/cloud_base_msl_m[0]", 0.0),
+            precipitation_on_aircraft_ratio=values.get("sim/weather/aircraft/precipitation_on_aircraft_ratio", 0.0),
+            cloud_layers=cloud_layers,
         )
         traffic = self._build_traffic(values, ownship.latitude, ownship.longitude, ownship.heading_deg)
         automation = AutomationState(
@@ -401,6 +456,8 @@ class SnapshotAdapter:
                     range_nm=range_nm,
                     bearing_deg=bearing_deg,
                     confidence=1.0,
+                    relative_altitude_ft=None,
+                    flight_level=None,
                 )
             )
         for slot in range(8):
@@ -408,6 +465,10 @@ class SnapshotAdapter:
             rel_distance_m = values.get(f"sim/cockpit2/tcas/targets/relative_distance_m[{slot}]", 0.0)
             rel_bearing_deg = values.get(f"sim/cockpit2/tcas/targets/relative_bearing_degt[{slot}]", 0.0)
             alt_ft = values.get(f"sim/cockpit2/tcas/targets/altitude_ft[{slot}]", 0.0)
+            rel_alt_ft = values.get(f"sim/cockpit2/tcas/targets/relative_altitude_ft[{slot}]", 0.0)
+            flight_level_val = values.get(f"sim/cockpit2/tcas/targets/flight_level[{slot}]", 0.0)
+            vs_fpm = values.get(f"sim/cockpit2/tcas/targets/vertical_speed_fpm[{slot}]", 0.0)
+            hvel_mps = values.get(f"sim/cockpit2/tcas/targets/horizontal_velocity_mps[{slot}]", 0.0)
             lat = values.get(f"sim/cockpit2/tcas/targets/position/lat[{slot}]", 0.0)
             lon = values.get(f"sim/cockpit2/tcas/targets/position/lon[{slot}]", 0.0)
             ele = values.get(f"sim/cockpit2/tcas/targets/position/ele[{slot}]", 0.0)
@@ -428,6 +489,10 @@ class SnapshotAdapter:
                 range_nm = rel_distance_m / 1852.0
                 bearing_deg = (own_heading_deg + rel_bearing_deg + 360.0) % 360.0
                 altitude_m = alt_ft * 0.3048
+            fl_str = None
+            if abs(flight_level_val) > 0.5:
+                fl_int = int(round(flight_level_val / 100.0))
+                fl_str = f"FL{fl_int:03d}"
             targets.append(
                 TrafficTarget(
                     icao24=(f"{int(mode_s):06X}" if abs(mode_s) > 0.5 else f"tcas{slot:02d}"),
@@ -436,13 +501,15 @@ class SnapshotAdapter:
                     longitude=lon,
                     altitude_m=altitude_m,
                     heading_deg=psi if abs(psi) > 0.1 else rel_bearing_deg,
-                    velocity_mps=(vx * vx + vy * vy + vz * vz) ** 0.5,
-                    vertical_rate_mps=vz,
+                    velocity_mps=hvel_mps if abs(hvel_mps) > 0.1 else (vx * vx + vy * vy + vz * vz) ** 0.5,
+                    vertical_rate_mps=vs_fpm / 196.8504 if abs(vs_fpm) > 0.5 else vz,
                     on_ground=altitude_m < 3.0,
                     source="tcas",
                     range_nm=range_nm,
                     bearing_deg=bearing_deg,
                     confidence=0.6 if has_position else 0.35,
+                    relative_altitude_ft=rel_alt_ft if abs(rel_alt_ft) > 0.5 else None,
+                    flight_level=fl_str,
                 )
             )
         return targets

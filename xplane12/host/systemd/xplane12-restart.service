@@ -1,0 +1,8 @@
+[Unit]
+Description=Restart the X-Plane 12 runtime stack
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/systemctl restart xplane12-simulator.service xplane12-autoflight.service xplane12-data-api.service xplane12-tunnel.service xplane-49013-tunnel.service

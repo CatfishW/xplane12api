@@ -13,7 +13,7 @@ HEADERS = {
     "Content-Type": "application/json",
 }
 
-AIRCRAFT_PATH = "Aircraft/Laminar Research/Cessna Citation X/Cessna_CitationX.acf"
+DEFAULT_AIRCRAFT_PATH = "Aircraft/Laminar Research/Sikorsky S-76/S-76C.acf"
 CENTER_LATITUDE = 33.6407
 CENTER_LONGITUDE = -84.4277
 AIR_START_ALTITUDE_M = 2800.0
@@ -60,10 +60,10 @@ def build_initial_air_start() -> tuple[float, float, float]:
     return latitude, longitude, heading_deg
 
 
-def build_air_start_payload() -> dict[str, JSONValue]:
+def build_air_start_payload(*, aircraft_path: str = DEFAULT_AIRCRAFT_PATH) -> dict[str, JSONValue]:
     latitude, longitude, heading_deg = build_initial_air_start()
     return {
-        "aircraft": {"path": AIRCRAFT_PATH},
+        "aircraft": {"path": aircraft_path},
         "lle_air_start": {
             "latitude": latitude,
             "longitude": longitude,
@@ -76,13 +76,16 @@ def build_air_start_payload() -> dict[str, JSONValue]:
     }
 
 
-def start_air_session_once(*, base_url: str = BASE_URL) -> None:
-    payload = build_air_start_payload()
+def start_air_session_once(*, base_url: str = BASE_URL, aircraft_path: str = DEFAULT_AIRCRAFT_PATH) -> None:
+    payload = build_air_start_payload(aircraft_path=aircraft_path)
     _ = request_json("POST", "/flight", payload, base_url=base_url)
     time.sleep(LOAD_SETTLE_SECONDS)
     lle_air_start = payload["lle_air_start"]
     print(
         "[xplane12_web_autoflight] air_start "
-        f"lat={float(lle_air_start['latitude']):.6f} lon={float(lle_air_start['longitude']):.6f} heading={float(lle_air_start['heading_true']):.1f}",
+        f"aircraft={payload['aircraft']['path']} "
+        f"lat={float(lle_air_start['latitude']):.6f} "
+        f"lon={float(lle_air_start['longitude']):.6f} "
+        f"heading={float(lle_air_start['heading_true']):.1f}",
         flush=True,
     )

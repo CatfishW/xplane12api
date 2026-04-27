@@ -56,6 +56,10 @@ SERVICE_NAMES=(
     xplane-49013-tunnel.service
 )
 
+TIMER_NAMES=(
+    xplane12-restart.timer
+)
+
 HOME_SCRIPTS=(
     xplane12_launch.sh
     xplane12_autoflight.sh
@@ -71,6 +75,8 @@ SYSTEMD_FILES=(
     xplane12-data-api.service
     xplane12-tunnel.service
     xplane-49013-tunnel.service
+    xplane12-restart.service
+    xplane12-restart.timer
 )
 
 mkdir_remote_dirs() {
@@ -95,12 +101,14 @@ copy_to_dev_root() {
 }
 
 install_remote() {
-    local services_joined diag_args_joined remote_env_cmd
+    local services_joined timers_joined diag_args_joined remote_env_cmd
     services_joined="${SERVICE_NAMES[*]}"
+    timers_joined="${TIMER_NAMES[*]}"
     diag_args_joined="${DIAG_ARGS[*]}"
     remote_env_cmd="REMOTE_HOME=$(printf '%q' "${REMOTE_HOME}")"
     remote_env_cmd+=" REMOTE_API_HEALTH_URL=$(printf '%q' "${REMOTE_API_HEALTH_URL}")"
     remote_env_cmd+=" SERVICES_JOINED=$(printf '%q' "${services_joined}")"
+    remote_env_cmd+=" TIMERS_JOINED=$(printf '%q' "${timers_joined}")"
     remote_env_cmd+=" RUN_DIAG=$(printf '%q' "${RUN_DIAG}")"
     remote_env_cmd+=" DIAG_ARGS_JOINED=$(printf '%q' "${diag_args_joined}")"
     ssh "${SSH_TARGET}" "${remote_env_cmd} bash -s" <<'EOF'
@@ -123,10 +131,13 @@ sudo install -m 644 "${REMOTE_HOME}/xplane12-autoflight.service" /etc/systemd/sy
 sudo install -m 644 "${REMOTE_HOME}/xplane12-data-api.service" /etc/systemd/system/xplane12-data-api.service
 sudo install -m 644 "${REMOTE_HOME}/xplane12-tunnel.service" /etc/systemd/system/xplane12-tunnel.service
 sudo install -m 644 "${REMOTE_HOME}/xplane-49013-tunnel.service" /etc/systemd/system/xplane-49013-tunnel.service
+sudo install -m 644 "${REMOTE_HOME}/xplane12-restart.service" /etc/systemd/system/xplane12-restart.service
+sudo install -m 644 "${REMOTE_HOME}/xplane12-restart.timer" /etc/systemd/system/xplane12-restart.timer
 
 sudo systemctl daemon-reload
 sudo systemctl enable ${SERVICES_JOINED}
 sudo systemctl restart ${SERVICES_JOINED}
+sudo systemctl enable --now ${TIMERS_JOINED}
 sudo systemctl --no-pager --full status ${SERVICES_JOINED}
 for attempt in $(seq 1 30); do
     if curl -fsS "${REMOTE_API_HEALTH_URL}"; then
