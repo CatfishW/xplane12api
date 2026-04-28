@@ -284,6 +284,7 @@ sudo systemctl --no-pager --full status \
 ## Important runtime notes
 
 - The XP12 production host is pinned to `rref` rather than `auto`/XPlaneConnect.
-- `xplane12_launch.sh` reuses an already-running real X-Plane PID when Steam forwards to an existing sim process.
+- `xplane12_launch.sh` waits for any existing real X-Plane process to exit and for the Web API port (`8086` by default) to clear before launching a fresh simulator instance. If the port never clears, startup fails fast so systemd can retry instead of booting a broken sim.
+- `xplane12_webapi_watchdog.py` terminates X-Plane if the Web API never becomes ready or if `Log.txt` records the `8086` bind failure, so systemd can recover automatically from a bad startup.
 - Remote deployment examples assume the Python checkout lives under `${REMOTE_HOME}/Development/xplane12`.
 - Tests live under `xplane12/host/tests/`.

@@ -86,7 +86,10 @@ def click_no_thanks(window_id: str, dialog_bbox: tuple[int, int, int, int]) -> N
     height = bottom - top
     target_x = left + int(width * 0.78)
     target_y = top + int(height * 0.93)
+    run_command("xdotool", "windowactivate", "--sync", window_id)
+    time.sleep(0.25)
     run_command("xdotool", "mousemove", "--window", window_id, str(target_x), str(target_y))
+    time.sleep(0.1)
     run_command("xdotool", "click", "1")
 
 

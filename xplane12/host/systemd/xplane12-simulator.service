@@ -9,7 +9,7 @@ User=your-user
 EnvironmentFile=-/home/your-user/xplane12.env
 ExecStart=/home/your-user/xplane12_launch.sh
 Restart=always
-RestartSec=10
+RestartSec=20
 Environment=HOME=/home/your-user
 WorkingDirectory=/home/your-user
 
