@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>X-Plane 12 FAA Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Orbitron:wght@600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="page">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">FAA / X-Plane 12</p>
+          <h1>Live Aircraft & Systems Monitor</h1>
+        </div>
+        <div class="status-card">
+          <span class="status-dot status-dot--offline" id="status-dot"></span>
+          <div>
+            <p class="status-label">Bridge health</p>
+            <p class="status-value" id="status-text">Loading…</p>
+          </div>
+        </div>
+      </header>
+
+      <main class="grid" id="dashboard">
+        <section class="panel" data-section="aircraft">
+          <div class="panel-header">
+            <h2>Aircraft</h2>
+            <span class="panel-meta" id="aircraft-ts">—</span>
+          </div>
+          <div class="panel-body" id="aircraft-body">
+            <p class="panel-state" data-state="loading">Fetching aircraft data…</p>
+          </div>
+        </section>
+
+        <section class="panel" data-section="weather">
+          <div class="panel-header">
+            <h2>Weather</h2>
+            <span class="panel-meta" id="weather-ts">—</span>
+          </div>
+          <div class="panel-stack panel-stack--radar">
+            <div class="panel-visual panel-visual--radar">
+              <img id="weather-image" class="radar-image" alt="Live X-Plane weather display" />
+            </div>
+            <div class="panel-body panel-body--metrics" id="weather-body">
+              <p class="panel-state" data-state="loading">Loading weather…</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel" data-section="systems">
+          <div class="panel-header">
+            <h2>Systems</h2>
+            <span class="panel-meta" id="systems-ts">—</span>
+          </div>
+          <div class="panel-body" id="systems-body">
+            <p class="panel-state" data-state="loading">Awaiting systems snapshot…</p>
+          </div>
+        </section>
+
+        <section class="panel" data-section="traffic">
+          <div class="panel-header">
+            <h2>Traffic</h2>
+            <span class="panel-meta" id="traffic-ts">—</span>
+          </div>
+          <div class="panel-stack panel-stack--radar">
+            <div class="panel-visual panel-visual--radar">
+              <img id="traffic-image" class="radar-image" alt="Live X-Plane traffic display" />
+            </div>
+            <div class="panel-body panel-body--metrics traffic-panel-body" id="traffic-body">
+              <p class="panel-state" data-state="loading">Scanning traffic network…</p>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel panel--wide" data-section="gauges">
+          <div class="panel-header">
+            <h2>Glass Deck</h2>
+            <span class="panel-meta" id="gauges-ts">—</span>
+          </div>
+          <div class="panel-body gauges-layout">
+            <img id="gauges-image" class="gauges-image" alt="Live X-Plane gauges mosaic" />
+            <div class="gauge-grid" id="gauge-grid">
+              <p class="panel-state">Loading avionics displays…</p>
+            </div>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="dashboard.js?v=20260425a" type="module"></script>
+  </body>
+</html>

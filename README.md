@@ -7,11 +7,28 @@ Standalone X-Plane 12 host/runtime repository. The Python package lives under `x
 - `xplane12/host/xplane12_web_autoflight.py` — waits for the XP12 Web API, optionally air-starts once, then runs the endless-flight relay.
 - `xplane12/host/xplane_remote_relay.py` — telemetry relay for `mock`, `xpc`, `rref`, and `auto` modes. Current production host usage is pinned to `rref`.
 - `xplane12/host/xplane12_data_api.py` — local snapshot/stream API.
+- `web/xplane12/` — tracked static web dashboard for `faa.agaii.org/xplane12/`.
 - `xplane12/host/bin/` — remote wrapper scripts copied to the target host home directory.
 - `xplane12/host/systemd/` — example systemd units for Linux host deployment.
 - `xplane12/host/tools/` — local install/restart/diag/log helpers.
 - `xplane12/host/env/xplane12.env.example` — example host environment file.
 - `xplane12/host/tests/` — Python tests for the XP12 host modules.
+
+## Web UI
+
+The production X-Plane 12 dashboard frontend is tracked under `web/xplane12/`.
+
+- `index.html` — static dashboard shell
+- `styles.css` — dashboard styling
+- `dashboard.js` — live polling, radar/gauge panels, and gauge modal interactions
+
+The tracked frontend expects the deployed web root to provide these relative endpoints:
+
+- `./api/`
+- `./v1/render/weather.png`
+- `./v1/render/traffic.png`
+- `./v1/render/gauges.png`
+- `./v1/render/gauges.json`
 
 ## What starts what
 
